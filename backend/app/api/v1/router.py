@@ -32,6 +32,7 @@ from app.api.v1 import dicomweb as dicomweb_router
 from app.api.v1 import orthanc_auth as orthanc_auth_router
 # ===== LTI 1.3（慧眼作为 Tool 挂进 Moodle 等 LMS） =====
 from app.api.v1 import lti as lti_router
+from app.api.v1 import question as question_router
 
 api_v1_router = APIRouter()
 
@@ -63,3 +64,5 @@ api_v1_router.include_router(lti_router.router)
 api_v1_router.include_router(dicomweb_router.router)
 # PACS 授权回调（Orthanc Authorization 插件 → Keycloak 令牌校验）
 api_v1_router.include_router(orthanc_auth_router.router)
+# 眼底影像题库（逐图题与指南挖空题）
+api_v1_router.include_router(question_router.router)

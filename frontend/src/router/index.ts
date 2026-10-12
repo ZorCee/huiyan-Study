@@ -184,7 +184,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'review',
         redirect: { path: '/training/reading', query: { tab: 'quality' } },
-        meta: { title: '质量评估', allowedRoles: ['admin', 'doctor'] }
+        meta: { title: '作业批阅', allowedRoles: ['admin', 'doctor'] }
       },
       {
         path: 'student-teaching',

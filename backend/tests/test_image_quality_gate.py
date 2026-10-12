@@ -177,3 +177,119 @@ def test_empty_case_is_not_quality_checked():
     """没有原始影像时不能报告「已质控」"""
     s = summarize_safety([])
     assert s["qualityChecked"] is False
+
+
+def test_evaluate_case_auto_registers_legacy_image_paths(monkeypatch):
+    """
+    当病例仅有 image_paths 且 biz_case_image 尚无记录时，
+    评估质量应自动将其实体化为 CaseImage(role='original') 并顺利完成评估，
+    而不能报错报空。
+    """
+    import asyncio
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from app.db.base import Base
+    from app.db.models import CaseImage, CaseImageQuality, Role, TrainingCase, User
+    from app.services.image_quality_service import ImageQualityService
+    from app.services import csu_eyes_client
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+
+    try:
+        role = Role(code="TEACHER", name="教师")
+        session.add(role)
+        session.flush()
+        user = User(username="teacher", password_hash="x", role_id=role.id, real_name="老师")
+        session.add(user)
+        session.flush()
+
+        case = TrainingCase(
+            case_no="T-TEST-001",
+            title="测试病例",
+            creator_id=user.id,
+            image_paths={"OS": ["/static/demo/fundus_normal_01.jpg"]},
+        )
+        session.add(case)
+        session.commit()
+        session.refresh(case)
+
+        # 验证初始状态：biz_case_image 为空
+        assert session.query(CaseImage).filter(CaseImage.case_id == case.id).count() == 0
+
+        # Mock 算法评估
+        async def fake_assess(image_path):
+            return {
+                "model": {"name": "TestModel"},
+                "result": {
+                    "prediction_en": "good",
+                    "probabilities": {"good": 0.92, "usable": 0.08},
+                },
+            }
+        monkeypatch.setattr(csu_eyes_client, "assess_image_quality", fake_assess)
+
+        res = asyncio.run(ImageQualityService.evaluate_case(session, case.id))
+
+        assert res["total"] == 1
+        assert res["evaluated"] == 1
+        assert res["failed"] == 0
+        assert res["items"][0]["quality"] == "good"
+
+        # 验证 CaseImage 已自动补齐登记
+        ci = session.query(CaseImage).filter(
+            CaseImage.case_table == "training",
+            CaseImage.case_id == case.id,
+            CaseImage.role == "original",
+        ).first()
+        assert ci is not None
+        assert ci.eye == "OS"
+        assert ci.file_url == "/static/demo/fundus_normal_01.jpg"
+
+        # 验证 CaseImageQuality 已关联
+        q = session.query(CaseImageQuality).filter(CaseImageQuality.case_image_id == ci.id).first()
+        assert q is not None
+        assert q.quality == "good"
+    finally:
+        session.close()
+
+
+def test_evaluate_case_returns_zero_when_truly_no_images():
+    """当病例确实没有任何影像路径时，明确返回 total=0"""
+    import asyncio
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from app.db.base import Base
+    from app.db.models import Role, TrainingCase, User
+    from app.services.image_quality_service import ImageQualityService
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+
+    try:
+        role = Role(code="TEACHER", name="教师")
+        session.add(role)
+        session.flush()
+        user = User(username="teacher", password_hash="x", role_id=role.id, real_name="老师")
+        session.add(user)
+        session.flush()
+
+        case = TrainingCase(
+            case_no="T-EMPTY-001",
+            title="无图病例",
+            creator_id=user.id,
+            image_paths={},
+        )
+        session.add(case)
+        session.commit()
+        session.refresh(case)
+
+        res = asyncio.run(ImageQualityService.evaluate_case(session, case.id))
+        assert res["total"] == 0
+        assert res["evaluated"] == 0
+        assert res["items"] == []
+    finally:
+        session.close()
+
+

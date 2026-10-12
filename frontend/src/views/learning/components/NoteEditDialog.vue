@@ -10,6 +10,8 @@ import {
   serializeNoteContent,
   type NoteBlock
 } from '@/utils/note-content'
+import CaseSelect from '@/components/CaseSelect.vue'
+import type { CaseBrowseItem } from '@/api/case-browse'
 
 type Note = LearningApi.LearningNote
 
@@ -90,16 +92,46 @@ watch(() => props.visible, (v) => {
   if (v) reset()
 })
 
+const initialCaseData = computed(() => {
+  if (props.bind?.caseId) {
+    return {
+      caseId: props.bind.caseId,
+      caseNo: props.bind.caseNo,
+      caseTitle: props.bind.caseTitle
+    }
+  }
+  if (props.note?.caseId) {
+    return {
+      caseId: props.note.caseId,
+      caseNo: (props.note as any).caseNo,
+      caseTitle: (props.note as any).caseTitle
+    }
+  }
+  return null
+})
+
+const onCaseChange = (item: CaseBrowseItem | null) => {
+  if (!item) {
+    form.caseId = null
+  } else {
+    form.caseId = item.id
+  }
+}
+
 const bindHint = computed(() => {
   if (isEdit.value) return ''
-  if (props.bind?.caseNo) {
-    const idxText = props.bind.imageIndex !== undefined && props.bind.imageIndex >= 0
-      ? `· 影像 #${props.bind.imageIndex + 1}` : ''
-    return `已绑定病例 ${props.bind.caseNo}${props.bind.caseTitle ? ` (${props.bind.caseTitle})` : ''} ${idxText}`
+  if (form.caseId) {
+    if (props.bind?.caseId === form.caseId && props.bind?.caseNo) {
+      const idxText = props.bind.imageIndex !== undefined && props.bind.imageIndex >= 0
+        ? ` · 影像 #${props.bind.imageIndex + 1}` : ''
+      return `当前关联：${props.bind.caseNo}${props.bind.caseTitle ? ` (${props.bind.caseTitle})` : ''}${idxText}`
+    }
+    return `当前关联：病例 ID #${form.caseId}`
   }
-  if (form.caseId) return `已绑定病例 ID #${form.caseId}`
-  if (props.bind?.caseTitle) return `已关联资料：${props.bind.caseTitle}`
-  return '本笔记不绑定病例'
+  if (props.bind?.caseTitle && !props.bind?.caseId) {
+    return `已关联资料：${props.bind.caseTitle}`
+  }
+  return '本笔记未关联病例（可选）'
 })
 
 const tableIndex = (blockIndex: number) =>
@@ -262,14 +294,12 @@ const handleSave = async () => {
         </div>
       </el-form-item>
 
-      <el-form-item label="病例 ID" v-if="!isEdit && !props.bind?.caseId">
-        <el-input-number
+      <el-form-item label="关联病例">
+        <CaseSelect
           v-model="form.caseId"
-          :min="1"
-          :step="1"
-          placeholder="可选"
-          style="width: 100%"
-          :controls="false"
+          :initial-case="initialCaseData"
+          placeholder="输入病例 ID、编号或关键词实时搜索（例如输入 1）"
+          @change="onCaseChange"
         />
       </el-form-item>
     </el-form>

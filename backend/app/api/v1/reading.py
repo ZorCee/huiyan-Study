@@ -76,13 +76,13 @@ async def check_image_quality(
             for item in (data.get("items") or [])
             if item.get("quality") and item.get("quality") != "unknown"
         ]
-        note = "学员提交的影像质量评估，待教师审核。算法建议：" + ("；".join(lines) or "无")
+        note = "学员提交的图像质控记录，待教师审核。算法建议：" + ("；".join(lines) or "无")
         reviewed = ReadingService.submit_quality_review(
             db, current_user, caseId, note, {"qualityItems": data.get("items") or []},
         )
         data["reviewStatus"] = reviewed.status
         data["readingId"] = reviewed.id
-    msg = "已提交教师质量评估" if data.get("reviewStatus") == "SUBMITTED" else "质量评估完成"
+    msg = "图像质控已完成并送交教师评审" if data.get("reviewStatus") == "SUBMITTED" else "图像质控完成"
     return success(data=data, msg=msg)
 
 
@@ -93,9 +93,48 @@ class LesionSegParams(BaseModel):
     image_url: str = Field(..., alias="imageUrl", min_length=1)
 
 
+class AiPredictParams(BaseModel):
+    """AI 预测图推理参数，支持算法 A (VM-UNet 多病灶) 与算法 B (CSU-EYES 微动脉瘤)"""
+
+    model_config = ConfigDict(populate_by_name=True)
+    image_url: str = Field(..., alias="imageUrl", min_length=1)
+    algorithm: str = Field("multi_lesions", alias="algorithm")
+    eye: Optional[str] = Field(None, alias="eye")
+
+
+@router.post(
+    "/cases/{caseId}/ai-predict",
+    summary="对当前眼底图执行真实 AI 预测算法（多病灶分割 / 微动脉瘤分割）",
+    response_model=None,
+)
+async def predict_case_ai(
+    params: AiPredictParams,
+    current_user: CurrentUser,
+    db: DbSession,
+    caseId: int = Path(..., ge=1),
+):
+    """
+    接入两套真实算法：
+    1. multi_lesions: VM-UNet（出血、硬性渗出、软性渗出）
+    2. ma_detection: CSU-EYES 微动脉瘤分割
+    解耦金标准，服务不可用时如实返回错误，绝不伪造数据。
+    """
+    from app.services.lesion_seg_service import LesionSegService
+
+    data = await LesionSegService.predict(
+        db=db,
+        user=current_user,
+        case_id=caseId,
+        image_url=params.image_url,
+        algorithm=params.algorithm,
+        eye=params.eye,
+    )
+    return success(data=data, msg=data.get("message") or "")
+
+
 @router.post(
     "/cases/{caseId}/lesion-seg",
-    summary="对当前眼底图做出血、硬性渗出、软性渗出分割（TEACHER/ADMIN）",
+    summary="对当前眼底图做出血、硬性渗出、软性渗出分割",
     response_model=None,
 )
 def segment_lesions(
@@ -105,9 +144,7 @@ def segment_lesions(
     caseId: int = Path(..., ge=1),
 ):
     """
-    调用本地 VM-UNet。不写阅片记录，不改评分，也不代替 CSU-EYES 分级。
-    学员调用会 403。运行环境缺 PyTorch 或 mamba_ssm 时返回 available=false，
-    不把失败当成检出了病灶。
+    兼容保留旧接口：调用本地 VM-UNet。
     """
     from app.services.lesion_seg_service import LesionSegService
 
@@ -115,6 +152,7 @@ def segment_lesions(
         db=db, user=current_user, case_id=caseId, image_url=params.image_url,
     )
     return success(data=data, msg=data.get("message") or "")
+
 
 
 @router.get(

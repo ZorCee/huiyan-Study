@@ -58,6 +58,7 @@ from app.db.models.practice_session import (  # noqa: F401
     PracticeModeEnum,
 )
 from app.db.models.text_quiz_attempt import TextQuizAttempt  # noqa: F401
+from app.db.models.question import Question, QuestionTypeEnum  # noqa: F401
 
 # ===== 学习资料 / 收藏 / 笔记 模块 =====
 from app.db.models.learning import (  # noqa: F401

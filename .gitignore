@@ -52,3 +52,11 @@ backend/app/static/dicom/
 *.tar.gz
 _tmp_feedback/
 
+# ---- 开发期一次性脚本（不入库）----
+# scratch/ 用于放未成形/一次性调试脚本，正式测试请使用 backend/tests/ 下 pytest 体系
+scratch/
+
+
+# 发布过程脚本（不入库）
+release-v4.5.bat
+release-v4.5.ps1

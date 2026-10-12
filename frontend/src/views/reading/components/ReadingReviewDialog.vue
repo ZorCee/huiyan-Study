@@ -90,7 +90,7 @@ const submit = async (accept: boolean) => {
 <template>
   <el-dialog
     v-model="visible"
-    title="质量评估 · 评定作业"
+    title="学员作业评审 · 教师评定"
     width="520px"
     destroy-on-close
   >

@@ -67,12 +67,13 @@ export function markCaption(
   return `${head} · ${label}`
 }
 
-export const LESION_LABELS: { label: string; value: string; color: string }[] = [
-  { label: '出血', value: '出血', color: '#f53f3f' },
-  { label: '渗出', value: '渗出', color: '#ff7d00' },
-  { label: '微动脉瘤', value: '微动脉瘤', color: '#fadb14' },
-  { label: '棉绒斑', value: '棉绒斑', color: '#52c41a' },
-  { label: '新生血管', value: '新生血管', color: '#1677ff' }
+export const LESION_LABELS: { label: string; value: string; color: string; code?: string }[] = [
+  { label: '出血', value: '出血', color: '#f53f3f', code: 'HE' },
+  { label: '硬性渗出', value: '硬性渗出', color: '#ffd700', code: 'EX' },
+  { label: '软性渗出', value: '软性渗出', color: '#52c41a', code: 'SE' },
+  { label: '微动脉瘤', value: '微动脉瘤', color: '#eb2f96', code: 'MA' },
+  { label: '视盘', value: '视盘', color: '#1677ff', code: 'OD' },
+  { label: '新生血管', value: '新生血管', color: '#13c2c2', code: 'NV' }
 ]
 
 export const TOOL_GROUPS: {

@@ -202,7 +202,8 @@ class ReadingService:
         meta = _flatten_images(case.image_paths)
         legacy_images = [m["url"] for m in meta]
 
-        # 2) 新 biz_case_image 一对多
+        # 2) 新 biz_case_image 一对多：确保存量 image_paths 已向 biz_case_image 同步
+        CaseImageService.ensure_training_case_images(db, case_id=case.id)
         ci_records = CaseImageService.list_by_case(
             db, case_table="training", case_id=case.id,
         )
@@ -368,7 +369,7 @@ class ReadingService:
             show_gold_layers=show_gold,
             gold_annotations=_gold_payload(case) if show_gold else [],
             lesion_mask_url=_mask_url(db, case.id) if show_gold else "",
-            heatmap_url=(case.gold_heatmap_path or "") if show_gold else "",
+            heatmap_url="",
             dicom_instances=dicom_instances,
             segmentation=segmentation,
             **_patient_block(case, user),

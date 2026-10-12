@@ -322,6 +322,15 @@ def _patch_schema() -> None:
             print(f"[schema_patch] x 建表 biz_text_quiz_attempt 失败：{e}")
             if is_sqlite:
                 raise
+    if "biz_question" not in tables:
+        try:
+            from app.db.models.question import Question
+            Question.__table__.create(bind=engine, checkfirst=True)
+            print("[schema_patch] + 已建表 biz_question")
+        except Exception as e:  # noqa: BLE001
+            print(f"[schema_patch] x 建表 biz_question 失败：{e}")
+            if is_sqlite:
+                raise
 
 
 def _init_database() -> None:

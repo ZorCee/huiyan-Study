@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 教师在阅片工作台里的「质量评估」：列出学员已提交作业，并当场通过/驳回。
+ * 教师在阅片工作台里的「作业批阅」：列出学员已提交作业，并当场通过/驳回。
  */
 import { onMounted, ref, watch } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
@@ -80,8 +80,8 @@ watch(() => props.caseId, () => {
   <div class="quality-panel">
     <header class="qp-head">
       <div>
-        <h3>质量评估</h3>
-        <p>学员的影像质量评估和阅片作业都在这里审核。质量评估在通过之前，学员端只显示待审核。</p>
+        <h3>作业批阅 · 待审列表</h3>
+        <p>学员提交的图像质控记录与阅片诊断作业均在此集中批阅。质控作业在教师审核通过前，学员端显示待审核。</p>
       </div>
       <el-button :icon="Refresh" size="small" @click="fetchList">刷新</el-button>
     </header>
@@ -109,7 +109,7 @@ watch(() => props.caseId, () => {
       <el-table-column prop="caseNo" label="病例" min-width="140" />
       <el-table-column label="类型" width="110">
         <template #default="{ row }">
-          {{ row.recordKind === 'QUALITY' ? '质量评估' : '阅片作业' }}
+          {{ row.recordKind === 'QUALITY' ? '图像质控作业' : '阅片诊断作业' }}
         </template>
       </el-table-column>
       <el-table-column label="状态" width="110">

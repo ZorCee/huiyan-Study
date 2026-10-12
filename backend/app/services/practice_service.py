@@ -371,6 +371,7 @@ def _score(
     text_values: Optional[dict] = None,
     image_size: Tuple[int, int] = (0, 0),
     eye: str = "",
+    db: Optional[Session] = None,
 ) -> Tuple[dict, List[ErrorPoint]]:
     """
     自动比对评分
@@ -562,17 +563,51 @@ def _score(
     # 没有题号的是旧练习，不把文字题算进总分，权重仍是分级 30 / 标注 50 / 诊断 20。
     # 新练习在点「开始练习」时就定下一组题，没写的按错，占总分 20%。
     from app.services.text_quiz import BY_ID, grade_answers
+    from app.db.models.question import Question
+    from app.services.question_service import QuestionService
 
-    bound_ids = [qid for qid in (text_ids or []) if qid in BY_ID]
+    bound_ids = list(text_ids or [])
     text_applicable = bool(bound_ids)
     text_values = text_values or {}
     if text_applicable:
-        graded_text = grade_answers([(qid, str(text_values.get(qid, ""))) for qid in bound_ids])
-        score_text = float(graded_text["score"])
-        text_hit = (
-            graded_text["correct_count"],
-            graded_text["question_count"],
-        )
+        total_questions = len(bound_ids)
+        total_earned_ratio = 0.0
+        correct_count = 0
+
+        db_qids = []
+        for qid in bound_ids:
+            s_qid = str(qid)
+            if s_qid.isdigit() or (s_qid.startswith("Q_") and s_qid[2:].isdigit()):
+                db_qids.append(int(s_qid.replace("Q_", "")))
+
+        db_questions_map = {}
+        if db is not None and db_qids:
+            try:
+                found = db.query(Question).filter(Question.id.in_(db_qids)).all()
+                db_questions_map = {q.id: q for q in found}
+            except Exception:
+                pass
+
+        for qid in bound_ids:
+            s_qid = str(qid)
+            val = str(text_values.get(s_qid, "")).strip()
+            clean_id = int(s_qid.replace("Q_", "")) if (s_qid.isdigit() or (s_qid.startswith("Q_") and s_qid[2:].isdigit())) else None
+
+            if clean_id and clean_id in db_questions_map:
+                q = db_questions_map[clean_id]
+                is_full, ratio, _ = QuestionService.grade_answer(q, val)
+                total_earned_ratio += ratio
+                if is_full:
+                    correct_count += 1
+            elif s_qid in BY_ID:
+                res = grade_answers([(s_qid, val)])
+                c_cnt = res.get("correct_count", 0)
+                if c_cnt > 0:
+                    total_earned_ratio += 1.0
+                    correct_count += 1
+
+        score_text = round((total_earned_ratio / total_questions) * 100.0, 2) if total_questions else 0.0
+        text_hit = (correct_count, total_questions)
     else:
         score_text = 0.0
         text_hit = None
@@ -667,20 +702,80 @@ def _question_ids(record: PracticeSession) -> list:
     return list(raw) if isinstance(raw, list) else []
 
 
-def _ensure_text_paper(record: PracticeSession) -> bool:
-    """开始练习时定下一组文字题。已有题号就不再换，避免刷新后题目变了。"""
+def _ensure_text_paper(record: PracticeSession, db: Optional[Session] = None) -> bool:
+    """开始练习时定下一组题目。优先抽取当前病例关联的逐图题与指南挖空题。已有题号就不再换，避免刷新后题目变了。"""
     if _question_ids(record):
         return False
     from app.services.text_quiz import build_paper
-    record.text_question_ids = [item.id for item in build_paper(4)]
+    from app.services.question_service import QuestionService
+
+    selected_ids = []
+    if db is not None and record.case_id:
+        try:
+            questions = QuestionService.get_questions_for_case(db, record.case_id)
+            if questions:
+                selected_ids = [str(q.id) for q in questions[:4]]
+        except Exception as e:
+            logger.warning(f"从 QuestionService 抽题失败: {e}")
+
+    # 若未命中或不足 4 题，用常规题库补齐
+    if len(selected_ids) < 4:
+        needed = 4 - len(selected_ids)
+        legacy_items = build_paper(needed)
+        selected_ids.extend([item.id for item in legacy_items])
+
+    record.text_question_ids = selected_ids
     return True
 
 
-def _text_questions(record: PracticeSession) -> list:
+def _text_questions(record: PracticeSession, db: Optional[Session] = None) -> list:
     from app.services.text_quiz import BY_ID, public_question
+    from app.db.models.question import Question, QuestionTypeEnum
     out = []
-    for qid in _question_ids(record):
-        item = BY_ID.get(qid)
+    q_ids = _question_ids(record)
+
+    db_qids = []
+    for qid in q_ids:
+        s_qid = str(qid)
+        if s_qid.isdigit() or (s_qid.startswith("Q_") and s_qid[2:].isdigit()):
+            db_qids.append(int(s_qid.replace("Q_", "")))
+
+    db_questions_map = {}
+    if db is not None and db_qids:
+        try:
+            found = db.query(Question).filter(Question.id.in_(db_qids)).all()
+            db_questions_map = {q.id: q for q in found}
+        except Exception:
+            pass
+
+    for qid in q_ids:
+        s_qid = str(qid)
+        clean_id = int(s_qid.replace("Q_", "")) if (s_qid.isdigit() or (s_qid.startswith("Q_") and s_qid[2:].isdigit())) else None
+
+        if clean_id and clean_id in db_questions_map:
+            q = db_questions_map[clean_id]
+            kind_val = str(getattr(q.question_type, "value", q.question_type))
+            kind_text = "逐图判读" if kind_val == QuestionTypeEnum.IMAGE_LEVEL else ("指南填空" if kind_val == QuestionTypeEnum.GUIDELINE_BLANK else "文字题")
+            out.append({
+                "id": str(q.id),
+                "kind": kind_val.lower(),
+                "kindText": kind_text,
+                "stem": q.stem,
+                "options": q.options or [],
+                "blankConfig": q.blank_config or [],
+                "blank_config": q.blank_config or [],
+                "roiBox": q.roi_box,
+                "roi_box": q.roi_box,
+                "relatedAnnotationId": q.related_annotation_id,
+                "sourceGuideline": q.source_guideline or "",
+                "sourceSection": q.source_section or "",
+                "caseId": q.case_id,
+                "imageId": q.image_id,
+                "difficulty": q.difficulty,
+            })
+            continue
+
+        item = BY_ID.get(s_qid)
         if item is None:
             continue
         face = public_question(item)
@@ -690,31 +785,94 @@ def _text_questions(record: PracticeSession) -> list:
             "kindText": face["kind_text"],
             "stem": face["stem"],
             "options": face["options"],
+            "blankConfig": [],
+            "blank_config": [],
+            "roiBox": None,
+            "roi_box": None,
+            "sourceGuideline": "常规理论",
+            "sourceSection": "",
         })
     return out
 
 
-def _text_items(record: PracticeSession) -> list:
+def _text_items(record: PracticeSession, db: Optional[Session] = None) -> list:
     from app.services.text_quiz import BY_ID, KIND_TEXT, is_correct
+    from app.db.models.question import Question, QuestionTypeEnum
+    from app.services.question_service import QuestionService
+
     answers = {}
     for row in record.text_answers or []:
         if isinstance(row, dict) and row.get("id"):
-            answers[row["id"]] = row.get("value") or ""
+            answers[str(row["id"])] = str(row.get("value") or "")
+
+    q_ids = _question_ids(record)
+    db_qids = []
+    for qid in q_ids:
+        s_qid = str(qid)
+        if s_qid.isdigit() or (s_qid.startswith("Q_") and s_qid[2:].isdigit()):
+            db_qids.append(int(s_qid.replace("Q_", "")))
+
+    db_questions_map = {}
+    if db is not None and db_qids:
+        try:
+            found = db.query(Question).filter(Question.id.in_(db_qids)).all()
+            db_questions_map = {q.id: q for q in found}
+        except Exception:
+            pass
+
     items = []
-    for qid in _question_ids(record):
-        item = BY_ID.get(qid)
+    for qid in q_ids:
+        s_qid = str(qid)
+        val = answers.get(s_qid, "")
+        clean_id = int(s_qid.replace("Q_", "")) if (s_qid.isdigit() or (s_qid.startswith("Q_") and s_qid[2:].isdigit())) else None
+
+        if clean_id and clean_id in db_questions_map:
+            q = db_questions_map[clean_id]
+            is_full, ratio, msg = QuestionService.grade_answer(q, val)
+            kind_val = str(getattr(q.question_type, "value", q.question_type))
+            kind_text = "逐图判读" if kind_val == QuestionTypeEnum.IMAGE_LEVEL else ("指南填空" if kind_val == QuestionTypeEnum.GUIDELINE_BLANK else "文字题")
+
+            if q.blank_config:
+                expected_str = " / ".join([str(b.get("expected", "")) for b in q.blank_config])
+            else:
+                expected_str = q.answer or ""
+
+            items.append({
+                "id": str(q.id),
+                "kind": kind_val.lower(),
+                "kindText": kind_text,
+                "stem": q.stem,
+                "yours": val,
+                "expected": expected_str,
+                "correct": is_full,
+                "scoreRatio": ratio,
+                "gradeMessage": msg,
+                "explanation": q.explanation or "",
+                "roiBox": q.roi_box,
+                "roi_box": q.roi_box,
+                "sourceGuideline": q.source_guideline or "",
+                "sourceSection": q.source_section or "",
+            })
+            continue
+
+        item = BY_ID.get(s_qid)
         if item is None:
             continue
-        value = answers.get(qid, "")
         items.append({
             "id": item.id,
             "kind": item.kind,
-            "kindText": KIND_TEXT[item.kind],
+            "kindText": KIND_TEXT.get(item.kind, "文字题"),
             "stem": item.stem,
-            "yours": value,
+            "yours": val,
             "expected": item.answer,
-            "correct": is_correct(item, value),
+            "correct": is_correct(item, val),
+            "scoreRatio": 1.0 if is_correct(item, val) else 0.0,
+            "gradeMessage": "回答正确" if is_correct(item, val) else "回答错误",
             "explanation": item.explanation,
+            "roiBox": None,
+            "roi_box": None,
+            "sourceGuideline": "常规理论",
+            "sourceSection": "",
         })
     return items
 
@@ -755,16 +913,17 @@ def _answers_open(db: Session, record: PracticeSession) -> bool:
 
 def exam_locks_answers(db: Session, user_id: int, case_id: int) -> bool:
     """这名学员有一场还没交完、并且包含该病例的考试。"""
-    rows = (
-        db.query(PracticeSession)
+    draft = (
+        db.query(PracticeSession.id)
         .filter(
             PracticeSession.user_id == user_id,
             PracticeSession.case_id == case_id,
             PracticeSession.attempt_kind == "EXAM",
+            PracticeSession.status == PracticeStatusEnum.DRAFT.value,
         )
-        .all()
+        .first()
     )
-    return any(not _answers_open(db, row) for row in rows)
+    return draft is not None
 
 
 def _hint_catalog(record: PracticeSession, case: Optional[TrainingCase]) -> List[str]:
@@ -870,8 +1029,8 @@ def _to_out(record: PracticeSession, db: Session, viewer: Optional[User] = None)
         annotation_applicable=annotation_applicable,
         score_diagnosis=(record.score_diagnosis or 0.0) if show_scores else 0.0,
         score_text=(record.score_text or 0.0) if show_scores else 0.0,
-        text_questions=_text_questions(record),
-        text_items=_text_items(record) if revealed else [],
+        text_questions=_text_questions(record, db),
+        text_items=_text_items(record, db) if revealed else [],
         iou_avg=(record.iou_avg or 0.0) if show_scores else 0.0,
         accuracy=(record.accuracy or 0.0) if show_scores else 0.0,
         grade_match=bool(record.grade_match) if show_scores else False,
@@ -1166,7 +1325,9 @@ class PracticeService:
     # ---------- 金标准 ----------
 
     @staticmethod
-    def get_gold_standard(db: Session, user: User, case_id: int) -> GoldStandardData:
+    def get_gold_standard(
+        db: Session, user: User, case_id: int, session_id: Optional[int] = None
+    ) -> GoldStandardData:
         """提交后才允许查看金标准（防止学员"偷看"）"""
         case = db.query(TrainingCase).filter(TrainingCase.id == case_id).first()
         if not case:
@@ -1174,14 +1335,33 @@ class PracticeService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"病例不存在：{case_id}",
             )
-        _ensure_case_visible(case, user)
 
         if not _is_teacher_or_admin(user):
-            if exam_locks_answers(db, user.id, case_id):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="正式考试要全部交卷后才能查看金标准",
+            session_row = None
+            if session_id:
+                session_row = (
+                    db.query(PracticeSession)
+                    .filter(
+                        PracticeSession.id == session_id,
+                        PracticeSession.user_id == user.id,
+                        PracticeSession.case_id == case_id,
+                    )
+                    .first()
                 )
+
+            if session_row and _is_exam(session_row):
+                if not _answers_open(db, session_row):
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="正式考试要全部交卷后才能查看金标准",
+                    )
+            else:
+                if exam_locks_answers(db, user.id, case_id):
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="当前病例有一场未交卷的正式考试正在进行中，暂不可查看金标准",
+                    )
+
             # 学员需要至少有一次该病例的提交记录
             submitted = (
                 db.query(PracticeSession.id)
@@ -1196,6 +1376,19 @@ class PracticeService:
                 .first()
             )
             if not submitted:
+                from app.db.models.reading_annotation import ReadingAnnotation
+                submitted = (
+                    db.query(ReadingAnnotation.id)
+                    .filter(
+                        ReadingAnnotation.user_id == user.id,
+                        ReadingAnnotation.case_id == case_id,
+                        ReadingAnnotation.status.in_(["SUBMITTED", "REVIEWED"]),
+                    )
+                    .first()
+                )
+
+            if not submitted:
+                _ensure_case_visible(case, user)
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="请先提交本次作答，才能查看金标准",
@@ -1253,7 +1446,7 @@ class PracticeService:
             record.mode = params.mode
             if not record.started_at:
                 record.started_at = datetime.now()
-        _ensure_text_paper(record)
+        _ensure_text_paper(record, db)
         db.commit()
         db.refresh(record)
 
@@ -1315,7 +1508,7 @@ class PracticeService:
             )
             db.add(record)
             db.flush()
-            _ensure_text_paper(record)
+            _ensure_text_paper(record, db)
             if first is None:
                 first = record
         db.commit()
@@ -1413,7 +1606,7 @@ class PracticeService:
                 )
 
         # 评分
-        if _ensure_text_paper(record):
+        if _ensure_text_paper(record, db):
             db.flush()
         text_values = {row.id: row.value for row in params.text_answers}
         image_size, eye = _fundus_frame(db, case)
@@ -1427,6 +1620,7 @@ class PracticeService:
             text_values=text_values,
             image_size=image_size,
             eye=eye,
+            db=db,
         )
 
         # 抢占式置为已提交：WHERE status='DRAFT' 由数据库保证只有一个请求成功。
@@ -1608,7 +1802,7 @@ class PracticeService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="无权查看该记录",
             )
-        if record.status == PracticeStatusEnum.DRAFT.value and _ensure_text_paper(record):
+        if record.status == PracticeStatusEnum.DRAFT.value and _ensure_text_paper(record, db):
             db.commit()
             db.refresh(record)
         if int(getattr(record, "exam_paper_id", 0) or 0):

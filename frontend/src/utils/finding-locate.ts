@@ -46,7 +46,7 @@ const TASKS: Record<string, LocateTask> = {
     methodText: '点选',
     action: '去点选',
     prompt: '在图上点出至少一处微动脉瘤。点一下就落一个点。',
-    color: '#fadb14',
+    color: '#eb2f96',
     markLabel: '微动脉瘤'
   },
   HE: {
@@ -66,7 +66,7 @@ const TASKS: Record<string, LocateTask> = {
     methodText: '圈选',
     action: '去圈选',
     prompt: '按住并拖动，圈出至少一处硬性渗出。',
-    color: '#ff7d00',
+    color: '#ffd700',
     markLabel: '硬性渗出'
   },
   SE: {

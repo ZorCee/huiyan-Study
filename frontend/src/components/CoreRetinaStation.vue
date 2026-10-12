@@ -69,6 +69,11 @@ const props = withDefaults(
     /** 病灶提示图（热力图）。只在 layers.heatmap 打开时画。 */
     heatmapOverlayUrl?: string
     /**
+     * AI 预测图叠加地址（多病灶分割或微动脉瘤检测）。
+     * 只在 layers.heatmap = true 时画。与金标准完全解耦。
+     */
+    aiPredictionOverlayUrl?: string
+    /**
      * 多病灶分割叠加图（出血 / 硬性渗出 / 软性渗出）。
      * 只在带教工作台传入，不进图层存档，学员端保持空字符串。
      */
@@ -83,6 +88,8 @@ const props = withDefaults(
     } | null
     /** 右侧列表悬停的那一条。图上用同一编号，并给它加一圈亮边。 */
     highlightId?: string
+    /** 题目关联的 ROI 高亮区域 */
+    highlightBox?: { x: number; y: number; width?: number; height?: number } | [number, number, number, number] | null
     /**
      * 图上的病灶名称条。糖网才有微动脉瘤、出血这些名称。
      * 青光眼、AMD 等题目没有这项，外层传 false，避免看起来像在考 DR 病灶。
@@ -97,9 +104,11 @@ const props = withDefaults(
     laterality: '',
     goldOverlayUrl: '',
     heatmapOverlayUrl: '',
+    aiPredictionOverlayUrl: '',
     lesionSegUrl: '',
     segmentation: null,
     highlightId: '',
+    highlightBox: null,
     showLesionLabels: true
   }
 )
@@ -616,12 +625,10 @@ const redrawOverlay = () => {
   const h = canvas.height / (window.devicePixelRatio || 1)
   ctx.clearRect(0, 0, w, h)
 
-  // 病灶提示图在金标准之下，原图由视口本身控制显隐
-  if (effectiveLayers.value.heatmap && heatmapOverlay.value) {
-    drawOverlayImage(ctx, heatmapOverlay.value, 0.5)
-  }
-  if (lesionSegOverlay.value) {
-    drawOverlayImage(ctx, lesionSegOverlay.value, 0.45)
+  // AI 预测图在金标准之下，原图由视口本身控制显隐。独立解耦，受 layers.heatmap 控制
+  const aiOverlayImg = aiPredictionOverlay.value || heatmapOverlay.value || lesionSegOverlay.value
+  if (effectiveLayers.value.heatmap && aiOverlayImg) {
+    drawAiPredictionOverlay(ctx, aiOverlayImg)
   }
   // 金标准图像与分割掩码：像素级，画在矢量标注之下
   if (effectiveLayers.value.gold && goldOverlay.value) {
@@ -638,6 +645,11 @@ const redrawOverlay = () => {
 
   if (props.locate?.method === 'quadrant' && !effectiveReadonly.value) {
     drawQuadrantGuides(ctx)
+  }
+
+  // 题目关联的 ROI 高亮框（题目与图像病灶双向联动）
+  if (props.highlightBox) {
+    drawHighlightBox(ctx, props.highlightBox)
   }
 
   // 已落地的标注
@@ -769,6 +781,69 @@ const drawQuadrantGuides = (ctx: CanvasRenderingContext2D) => {
     ctx.strokeRect(x, y, Math.abs(b.x - a.x), Math.abs(b.y - a.y))
     ctx.fillText(QUAD_LABEL[code], x + 8, y + 18)
   }
+  ctx.restore()
+}
+
+/** 绘制题目关联的 ROI 考查病灶高亮指示框 */
+const drawHighlightBox = (
+  ctx: CanvasRenderingContext2D,
+  box: { x: number; y: number; width?: number; height?: number } | [number, number, number, number]
+) => {
+  let minX = 0, minY = 0, maxX = 0, maxY = 0
+  if (Array.isArray(box) && box.length >= 4) {
+    minX = Number(box[0])
+    minY = Number(box[1])
+    maxX = Number(box[2])
+    maxY = Number(box[3])
+  } else if (typeof box === 'object' && box !== null && 'x' in box) {
+    minX = Number(box.x)
+    minY = Number(box.y)
+    maxX = Number(box.x) + Number(box.width || 0)
+    maxY = Number(box.y) + Number(box.height || 0)
+  } else {
+    return
+  }
+
+  const p1 = pixelToCanvas(minX, minY)
+  const p2 = pixelToCanvas(maxX, maxY)
+  const x = Math.min(p1.x, p2.x)
+  const y = Math.min(p1.y, p2.y)
+  const w = Math.max(12, Math.abs(p2.x - p1.x))
+  const h = Math.max(12, Math.abs(p2.y - p1.y))
+
+  ctx.save()
+  // 呼吸发光边框
+  ctx.shadowColor = '#f59e0b'
+  ctx.shadowBlur = 14
+  ctx.strokeStyle = '#f59e0b'
+  ctx.lineWidth = 3
+  ctx.setLineDash([6, 4])
+  ctx.strokeRect(x, y, w, h)
+
+  // 4 个拐角直角强化
+  ctx.setLineDash([])
+  ctx.lineWidth = 4
+  const cornerLen = Math.min(14, w / 4, h / 4)
+  ctx.beginPath()
+  ctx.moveTo(x, y + cornerLen); ctx.lineTo(x, y); ctx.lineTo(x + cornerLen, y)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.moveTo(x + w - cornerLen, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + cornerLen)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.moveTo(x, y + h - cornerLen); ctx.lineTo(x, y + h); ctx.lineTo(x + cornerLen, y + h)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.moveTo(x + w - cornerLen, y + h); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w, y + h - cornerLen)
+  ctx.stroke()
+
+  // 考查区域小徽标
+  ctx.shadowBlur = 0
+  ctx.fillStyle = 'rgba(245, 158, 11, 0.92)'
+  ctx.fillRect(x, Math.max(0, y - 24), 110, 22)
+  ctx.fillStyle = '#ffffff'
+  ctx.font = 'bold 12px sans-serif'
+  ctx.fillText('🎯 题目考查区域', x + 6, Math.max(16, y - 8))
   ctx.restore()
 }
 
@@ -920,6 +995,7 @@ const segmentError = ref('')
 const goldOverlay = ref<HTMLImageElement | null>(null)
 const heatmapOverlay = ref<HTMLImageElement | null>(null)
 const lesionSegOverlay = ref<HTMLImageElement | null>(null)
+const aiPredictionOverlay = ref<HTMLImageElement | null>(null)
 
 /** 彩色病灶图与眼底图同一画幅，拉伸到影像矩形上即可对齐。 */
 const drawOverlayImage = (
@@ -945,6 +1021,28 @@ const drawOverlayImage = (
 const drawGoldOverlay = (ctx: CanvasRenderingContext2D) => {
   if (!goldOverlay.value) return
   drawOverlayImage(ctx, goldOverlay.value, 0.55)
+}
+
+const drawAiPredictionOverlay = (ctx: CanvasRenderingContext2D, img: HTMLImageElement) => {
+  drawOverlayImage(ctx, img, 0.55)
+  // 绘制左上角标识，与金标准的绿色虚线区分
+  ctx.save()
+  const badgeX = 14
+  const badgeY = 22
+  ctx.font = 'bold 12px sans-serif'
+  const text = '🤖 AI 预测图'
+  const textWidth = ctx.measureText(text).width
+  ctx.fillStyle = 'rgba(114, 46, 209, 0.85)'
+  ctx.beginPath()
+  if (typeof (ctx as any).roundRect === 'function') {
+    ;(ctx as any).roundRect(badgeX, badgeY - 14, textWidth + 14, 20, 4)
+  } else {
+    ctx.rect(badgeX, badgeY - 14, textWidth + 14, 20)
+  }
+  ctx.fill()
+  ctx.fillStyle = '#ffffff'
+  ctx.fillText(text, badgeX + 7, badgeY)
+  ctx.restore()
 }
 
 /**
@@ -1084,7 +1182,7 @@ const isPointerTool = () => props.tool === 'pointer'
  */
 const POINTER_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M5.5 2.5v16l3.7-3.9 3.6 6.6 2.6-1.2-3.7-6.7 6.1 0z" fill="#fff" stroke="#111" stroke-width="1.4" stroke-linejoin="round"/></svg>'
-)}") 5 2, auto`
+)}") 5 2, default`
 
 const cursorFor = (kind: 'handle' | 'body' | null) => {
   if (locating()) return 'crosshair'
@@ -1101,7 +1199,13 @@ const cursorFor = (kind: 'handle' | 'body' | null) => {
 const paintCursor = (kind: 'handle' | 'body' | null) => {
   const cur = cursorFor(kind)
   if (overlayRef.value) overlayRef.value.style.cursor = cur
-  if (elementRef.value) elementRef.value.style.cursor = cur
+  if (elementRef.value) {
+    elementRef.value.style.cursor = cur
+    // 同时同步 Cornerstone 内部生成的 canvas 元素，避免内置工具 inline 样式覆盖光标
+    elementRef.value.querySelectorAll('canvas').forEach((c) => {
+      ;(c as HTMLElement).style.cursor = cur
+    })
+  }
 }
 
 const hoverKind = (px: number, py: number): 'handle' | 'body' | null => {
@@ -1311,7 +1415,7 @@ const onMouseDown = (e: MouseEvent) => {
 
   // 先看是不是抓住了已有的框。放在新建之前判断：
   // 否则想挪一个框，反而会在它上面又画一个新的。
-  if (!drawing.value && props.tool !== 'eraser' && tryDragAnnotation(px, py)) {
+  if (!drawing.value && tryDragAnnotation(px, py)) {
     return
   }
 
@@ -1482,6 +1586,7 @@ const finalizeAnnotation = () => {
   drawing.value = false
   currentPoints.value = []
   hoverPoint.value = null
+  paintCursor(null)
   redrawOverlay()
 }
 
@@ -1798,6 +1903,12 @@ watch(
 )
 
 watch(
+  () => props.aiPredictionOverlayUrl,
+  (url) => loadOverlay(url || '', aiPredictionOverlay),
+  { immediate: true }
+)
+
+watch(
   () => props.lesionSegUrl,
   (url) => loadOverlay(url || '', lesionSegOverlay),
   { immediate: true }
@@ -1806,9 +1917,11 @@ watch(
 watch(
   () => props.tool,
   (t) => {
+    finishDrag()
     setActiveCornerstoneTool(t)
     drawing.value = false
     currentPoints.value = []
+    hoverPoint.value = null
     paintCursor(null)
     redrawOverlay()
   }
@@ -1824,7 +1937,19 @@ watch(
 )
 
 watch(
-  () => [props.annotations, props.measurements, effectiveLayers.value, props.goldAnnotations, props.goldOverlayUrl, props.heatmapOverlayUrl, props.lesionSegUrl, props.highlightId, markMenu.value?.id],
+  () => [
+    props.annotations,
+    props.measurements,
+    effectiveLayers.value,
+    props.goldAnnotations,
+    props.goldOverlayUrl,
+    props.heatmapOverlayUrl,
+    props.aiPredictionOverlayUrl,
+    props.lesionSegUrl,
+    props.highlightId,
+    props.highlightBox,
+    markMenu.value?.id
+  ],
   () => redrawOverlay(),
   { deep: true }
 )

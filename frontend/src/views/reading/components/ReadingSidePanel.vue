@@ -12,6 +12,15 @@ import type { ReadingApi } from '@/api'
 import ReviewPresetChips from './ReviewPresetChips.vue'
 import { EXCELLENT_PASS_COMMENT, appendReviewComment } from '../review-presets'
 
+const LESION_LEGEND = [
+  { key: 'HE', name: '视网膜出血', color: '#f53f3f' },
+  { key: 'EX', name: '硬性渗出', color: '#ffd700' },
+  { key: 'SE', name: '软性渗出/棉绒斑', color: '#52c41a' },
+  { key: 'MA', name: '微动脉瘤', color: '#eb2f96' },
+  { key: 'OD', name: '视盘', color: '#1677ff' },
+  { key: 'NV', name: '新生血管', color: '#13c2c2' }
+]
+
 type ReadingRecord = ReadingApi.ReadingRecord
 
 const props = defineProps<{
@@ -166,7 +175,7 @@ const passAsExcellent = () => {
         />
       </div>
       <div class="row">
-        <span class="muted"><el-icon><Hide /></el-icon> AI 热力图</span>
+        <span class="muted"><el-icon><Hide /></el-icon> AI 预测图</span>
         <el-switch
           :model-value="layers.heatmap"
           size="small"
@@ -183,6 +192,18 @@ const passAsExcellent = () => {
         />
       </div>
       <p v-if="layerNotes?.gold" class="layer-note">{{ layerNotes.gold }}</p>
+    </section>
+
+    <!-- 病灶图例（IDRiD 临床标准） -->
+    <section class="block">
+      <div class="block-title">病灶图例（IDRiD 标准）</div>
+      <div class="legend-grid">
+        <div v-for="item in LESION_LEGEND" :key="item.key" class="legend-item">
+          <span class="legend-color-box" :style="{ backgroundColor: item.color }" />
+          <span class="legend-name">{{ item.name }}</span>
+          <span class="legend-code">{{ item.key }}</span>
+        </div>
+      </div>
     </section>
 
     <!-- 标注列表 -->
@@ -639,5 +660,40 @@ const passAsExcellent = () => {
 .ww-input :deep(.el-input__inner) {
   text-align: center;
   font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.legend-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 6px;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #c9cdd4;
+  padding: 4px 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.legend-color-box {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.legend-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.legend-code {
+  font-size: 10px;
+  color: #86909c;
+  font-family: monospace;
 }
 </style>

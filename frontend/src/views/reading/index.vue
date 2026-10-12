@@ -2,7 +2,7 @@
 import { computed, onActivated, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Back, Document, ArrowLeft, ArrowRight, MagicStick } from '@element-plus/icons-vue'
+import { Back, Document, ArrowLeft, ArrowRight, MagicStick, EditPen } from '@element-plus/icons-vue'
 
 import { LoginApi, ReadingApi } from '@/api'
 import { getCaseBrowseList } from '@/api/case-browse'
@@ -26,6 +26,7 @@ import ReadingSafetyBar from './components/ReadingSafetyBar.vue'
 import CaseIdPair from '@/components/CaseIdPair.vue'
 import NoteEditDialog from '@/views/learning/components/NoteEditDialog.vue'
 import AiDiagnosisDialog from '@/components/AiDiagnosisDialog.vue'
+import ImageQuestionDrawer from './components/ImageQuestionDrawer.vue'
 import type {
   ToolName,
   CanvasState,
@@ -60,7 +61,7 @@ const recordId = computed(() => Number(route.query.recordId || 0))
 
 const missingCaseId = computed(() => !caseId.value && !recordId.value)
 
-/** 质量评估只在地址明确带 tab=quality 时出现。侧栏「阅片工作台」不带这个参数，应打开阅片画面。 */
+/** 作业批阅只在地址明确带 tab=quality 时出现。侧栏「阅片工作台」不带这个参数，应打开阅片画面。 */
 type WorkbenchTab = 'reading' | 'quality'
 const workbenchTab = ref<WorkbenchTab>('reading')
 const showQualityPanel = computed(
@@ -791,7 +792,7 @@ onMounted(async () => {
   applyWorkbenchTabFromRoute()
   if (caseId.value) rememberReadingCase(caseId.value)
 
-  // 侧栏点「阅片工作台」不带病例时，回到上次正在看的那例；质量评估要另点页签。
+  // 侧栏点「阅片工作台」不带病例时，回到上次正在看的那例；作业批阅要另点页签。
   if (!caseId.value && !recordId.value) {
     if (wantsQualityList()) return
     const id = preferredReadingCaseId()
@@ -950,40 +951,84 @@ const lesionSegImage = ref('')
 const lesionSegHint = ref('')
 const lesionSegFor = (imageUrl: string) =>
   lesionSegUrl.value && lesionSegImage.value === imageUrl ? lesionSegUrl.value : ''
-const runLesionSeg = async () => {
-  const imageUrl = currentImage.value
-  if (lesionSegUrl.value && lesionSegImage.value === imageUrl) {
-    lesionSegUrl.value = ''
-    lesionSegImage.value = ''
-    lesionSegHint.value = ''
-    return
+
+/* ===== AI 预测图（VM-UNet 多病灶分割 + CSU-EYES 微动脉瘤分割） ===== */
+const aiPredictLoading = ref(false)
+const aiPredictAlgorithm = ref<'multi_lesions' | 'ma_detection'>('multi_lesions')
+const aiPredictOverlayUrl = ref('')
+const aiPredictHint = ref('')
+
+const togglePrimaryLayer = () => {
+  canvasState.layers.primary = !canvasState.layers.primary
+  if (canvasState.layers.primary && currentImageRole.value !== 'original') {
+    currentImageRole.value = 'original'
   }
+}
+
+const toggleGoldLayer = () => {
+  canvasState.layers.gold = !canvasState.layers.gold
+  if (canvasState.layers.gold) {
+    const src = source.value
+    if (src && src.showGoldLayers === false) {
+      ElMessage.info('提交本次阅片或练习后，才能查看专家金标准')
+    } else if (!src?.goldAnnotations?.length && !src?.lesionMaskUrl && !src?.segmentation?.sopInstanceUid) {
+      ElMessage.info('当前病例暂无金标准数据')
+    } else {
+      ElMessage.success('已开启专家金标准图层（绿色虚线标记）')
+    }
+  }
+}
+
+const toggleAiLayer = () => {
+  canvasState.layers.heatmap = !canvasState.layers.heatmap
+  if (canvasState.layers.heatmap && !aiPredictOverlayUrl.value && !lesionSegUrl.value) {
+    ElMessage.info('AI 预测图层已开启，可选择算法后点击「执行预测」')
+  }
+}
+
+const toggleMyLayer = () => {
+  canvasState.layers.my = !canvasState.layers.my
+}
+
+const executeAiPredict = async () => {
+  const imageUrl = currentImage.value
   const cid = source.value?.caseId ?? caseId.value
   if (!cid || !imageUrl) {
-    lesionSegHint.value = '当前没有可分割的眼底原图'
+    ElMessage.warning('当前没有可供 AI 推理的眼底影像')
     return
   }
-  lesionSegLoading.value = true
-  lesionSegHint.value = '正在分割出血、硬性渗出和软性渗出…'
+
+  aiPredictLoading.value = true
+  const algoName = aiPredictAlgorithm.value === 'multi_lesions' ? 'VM-UNet 多病灶分割' : 'CSU-EYES 微动脉瘤分割'
+  aiPredictHint.value = `正在调用 ${algoName}…`
   try {
-    const r = await ReadingApi.segmentLesions(Number(cid), imageUrl)
-    if (!r?.available || !r.overlayUrl) {
-      lesionSegUrl.value = ''
-      lesionSegImage.value = ''
-      lesionSegHint.value = r?.message || '多病灶分割没有完成'
-      ElMessage.warning(lesionSegHint.value)
+    const res = await ReadingApi.aiPredict(Number(cid), {
+      imageUrl,
+      algorithm: aiPredictAlgorithm.value,
+      eye: currentEyeCode.value !== 'UNKNOWN' ? currentEyeCode.value : undefined
+    })
+    if (!res || !res.available || !res.overlayUrl) {
+      aiPredictOverlayUrl.value = ''
+      const msg = res?.message || `${algoName} 服务不可用`
+      aiPredictHint.value = msg
+      ElMessage.warning(msg)
       return
     }
-    lesionSegImage.value = imageUrl
-    lesionSegUrl.value = r.overlayUrl
-    lesionSegHint.value = r.message || '分割结果已叠加'
-    ElMessage.success(lesionSegHint.value)
+    aiPredictOverlayUrl.value = res.overlayUrl
+    canvasState.layers.heatmap = true // 自动开启 AI 预测图层
+    aiPredictHint.value = res.message || `${algoName} 完成，已叠加到画布`
+    ElMessage.success(aiPredictHint.value)
   } catch (err: any) {
-    lesionSegHint.value = err?.message || '多病灶分割没有完成'
-    ElMessage.warning(lesionSegHint.value)
+    aiPredictHint.value = err?.message || `${algoName} 算法调用失败`
+    ElMessage.error(aiPredictHint.value)
   } finally {
-    lesionSegLoading.value = false
+    aiPredictLoading.value = false
   }
+}
+
+const runLesionSeg = async () => {
+  aiPredictAlgorithm.value = 'multi_lesions'
+  await executeAiPredict()
 }
 const runQualityCheck = async () => {
   const cid = source.value?.caseId ?? caseId.value
@@ -1007,17 +1052,17 @@ const runQualityCheck = async () => {
           : `影像质控未完成：算法服务调用失败（${failed} 张）`
       )
     } else if (r?.reviewStatus === 'REVIEWED') {
-      ElMessage.success('教师已通过这份质量评估')
+      ElMessage.success('带教教师已审核通过本病例质控')
     } else if (r?.reviewStatus === 'SUBMITTED') {
-      ElMessage.success(`已提交教师质量评估，${tally}。审核通过前不算通过`)
+      ElMessage.success(`图像质控分析已完成（${tally}），质控记录已同步送交【带教教师评审】`)
     } else if (r?.hasUngradable) {
       ElMessage.warning(
-        `质量评估完成，${tally}，其中有不可判读影像，请勿据此给出阴性结论`
+        `图像质控完成，${tally}，其中有不可判读影像，请勿据此给出阴性结论`
       )
     } else if (failed > 0) {
-      ElMessage.warning(`质量评估完成，${tally}，另有 ${failed} 张失败`)
+      ElMessage.warning(`图像质控完成，${tally}，另有 ${failed} 张失败`)
     } else {
-      ElMessage.success(`质量评估完成，${tally}`)
+      ElMessage.success(`图像质控完成，${tally}`)
     }
     await fetchSource()
   } finally {
@@ -1060,19 +1105,52 @@ const currentEyeLabel = computed(() => {
   const base = EYE_LABEL[currentEyeCode.value] || currentImageMeta.value?.eyeText || '眼别未知'
   return inferred ? `${base}（视盘位置）` : base
 })
-const eyeHas = (code: 'OD' | 'OS') =>
-  originalMetas.value.some((m) => m.eye === code || m.eye === 'OU')
+const eyeHas = (code: 'OD' | 'OS') => {
+  if (originalMetas.value.some((m) => m.eye === code || m.eye === 'OU')) return true
+  const groups = source.value?.imageGroups || {}
+  const originals = (groups as any).original as string[] | undefined
+  const urls = originals?.length ? originals : source.value?.images || []
+  if (urls.length >= 2) return true
+  const hitByUrl = urls.some((u) => {
+    const s = u.toUpperCase()
+    return code === 'OD'
+      ? s.includes('OD') || s.includes('_R.') || s.includes('/R/') || s.includes('RIGHT')
+      : s.includes('OS') || s.includes('_L.') || s.includes('/L/') || s.includes('LEFT')
+  })
+  if (hitByUrl) return true
+  return urls.length > 0
+}
+
 const selectEye = (code: 'OD' | 'OS') => {
   if (dualView.value) return
   const metas = originalMetas.value
   const hit = metas.find((m) => m.eye === code) || metas.find((m) => m.eye === 'OU')
-  if (!hit?.url) return
-  if (availableRoles.value.includes('original')) currentImageRole.value = 'original'
   const groups = source.value?.imageGroups || {}
   const originals = (groups as any).original as string[] | undefined
   const urls = originals?.length ? originals : source.value?.images || []
-  const idx = urls.findIndex((u) => u === hit.url)
-  currentImageIndex.value = idx >= 0 ? idx : 0
+
+  if (availableRoles.value.includes('original')) currentImageRole.value = 'original'
+
+  if (hit?.url) {
+    const idx = urls.findIndex((u) => u === hit.url)
+    currentImageIndex.value = idx >= 0 ? idx : 0
+    return
+  }
+
+  const byKeywordIdx = urls.findIndex((u) => {
+    const s = u.toUpperCase()
+    return code === 'OD'
+      ? s.includes('OD') || s.includes('_R.') || s.includes('/R/') || s.includes('RIGHT')
+      : s.includes('OS') || s.includes('_L.') || s.includes('/L/') || s.includes('LEFT')
+  })
+  if (byKeywordIdx >= 0) {
+    currentImageIndex.value = byKeywordIdx
+    return
+  }
+
+  if (urls.length >= 2) {
+    currentImageIndex.value = code === 'OD' ? 0 : 1
+  }
 }
 
 type EyeSide = 'OD' | 'OS'
@@ -1302,12 +1380,11 @@ const selectStripImage = (index: number) => {
 const layerNotes = computed(() => {
   const notes: { primary?: string; heatmap?: string; gold?: string } = {}
   const src = source.value
+  if (!src || sourceLoading.value) return notes
   if (!canvasState.layers.primary) notes.primary = '原图已隐藏，标注还留在画面上'
   if (canvasState.layers.heatmap) {
-    if (src && src.showGoldLayers === false) {
-      notes.heatmap = '提交本次阅片或练习后，才能查看病灶提示图'
-    } else if (!src?.heatmapUrl) {
-      notes.heatmap = '这例没有病灶提示图'
+    if (!aiPredictOverlayUrl.value && !lesionSegUrl.value) {
+      notes.heatmap = '尚未运行 AI 预测，可选择算法后点击「执行预测」'
     }
   }
   if (canvasState.layers.gold) {
@@ -1317,7 +1394,7 @@ const layerNotes = computed(() => {
     if (src && src.showGoldLayers === false) {
       notes.gold = '提交本次阅片或练习后，才能查看金标准'
     } else if (!boxes && !mask && !seg) {
-      notes.gold = '这例没有金标准标注，也没有病灶着色图'
+      notes.gold = '当前病例未配置金标准数据'
     }
   }
   return notes
@@ -1342,8 +1419,9 @@ const openAiDiagnosis = () => {
   aiVisible.value = true
 }
 
-/* ========== 笔记联动 ========== */
+/* ========== 笔记与出题联动 ========== */
 const noteVisible = ref(false)
+const questionDrawerVisible = ref(false)
 const noteBind = computed(() => ({
   caseId: source.value?.caseId ?? caseId.value,
   caseNo: source.value?.caseNo || '',
@@ -1369,7 +1447,7 @@ const openNote = () => {
           {{
             String(route.query.from || '') === 'review' ||
             String(route.query.from || '') === 'quality'
-              ? '返回质量评估'
+              ? '返回作业批阅'
               : String(route.query.from || '') === 'my-reviews'
                   ? '返回教师评定'
                   : '返回病例库'
@@ -1388,7 +1466,7 @@ const openNote = () => {
           @change="(v: string) => (v === 'quality' ? openQualityTab() : openReadingTab())"
         >
           <el-radio-button value="reading">阅片</el-radio-button>
-          <el-radio-button value="quality">质量评估</el-radio-button>
+          <el-radio-button value="quality">作业批阅</el-radio-button>
         </el-radio-group>
         <!-- 病例快速切换 -->
         <div v-if="caseList.length && !showQualityPanel" class="case-switch">
@@ -1473,7 +1551,7 @@ const openNote = () => {
           plain
           @click="openQualityTab"
         >
-          质量评估
+          作业批阅
         </el-button>
         <el-button
           v-if="canAnnotate && !reviewMode && !recordLocked"
@@ -1483,7 +1561,7 @@ const openNote = () => {
           :disabled="!source || sourceLoading"
           @click="runQualityCheck"
         >
-          {{ canReview ? '影像质控' : '质量评估' }}
+          图像质控
         </el-button>
         <el-button
           v-if="canReview && currentImage"
@@ -1494,6 +1572,16 @@ const openNote = () => {
           @click="runLesionSeg"
         >
           {{ lesionSegUrl && lesionSegImage === currentImage ? '关闭分割' : '多病灶分割' }}
+        </el-button>
+        <el-button
+          v-if="canReview && currentImage"
+          size="small"
+          type="warning"
+          plain
+          :icon="EditPen"
+          @click="questionDrawerVisible = true"
+        >
+          为本图出题
         </el-button>
         <el-button
           size="small"
@@ -1536,7 +1624,7 @@ const openNote = () => {
       v-if="reviewMode && existingRecord && existingRecord.status === 'SUBMITTED'"
       class="review-bar"
     >
-      <span class="review-bar-title">质量评估 · 评定作业</span>
+      <span class="review-bar-title">学员作业评审 · 教师评定</span>
       <span class="review-bar-who">
         {{ existingRecord.userName || '学员' }} · {{ existingRecord.caseNo }}
       </span>
@@ -1695,6 +1783,102 @@ const openNote = () => {
 
       <!-- 中间画布 -->
       <div class="canvas-area">
+        <!-- 图像区顶部控制条：图层切换（原图 / 金标准 / AI预测图 / 我的标注）+ AI算法执行 + 左右眼切换 -->
+        <div v-if="!missingCaseId && source" class="station-topbar">
+          <div class="topbar-left">
+            <span class="topbar-title">图层：</span>
+            <div class="layer-pill-group">
+              <button
+                type="button"
+                class="layer-pill"
+                :class="{ active: canvasState.layers.primary }"
+                title="原图显示/隐藏"
+                @click="togglePrimaryLayer"
+              >
+                <span class="pill-dot primary" :class="{ 'is-on': canvasState.layers.primary }"></span>
+                原图
+              </button>
+              <button
+                type="button"
+                class="layer-pill"
+                :class="{ active: canvasState.layers.gold }"
+                title="专家金标准图层"
+                @click="toggleGoldLayer"
+              >
+                <span class="pill-dot gold" :class="{ 'is-on': canvasState.layers.gold }"></span>
+                金标准
+              </button>
+              <button
+                type="button"
+                class="layer-pill"
+                :class="{ active: canvasState.layers.heatmap }"
+                title="AI 预测图层"
+                @click="toggleAiLayer"
+              >
+                <span class="pill-dot ai" :class="{ 'is-on': canvasState.layers.heatmap }"></span>
+                AI 预测图
+              </button>
+              <button
+                type="button"
+                class="layer-pill"
+                :class="{ active: canvasState.layers.my }"
+                :title="canReview ? '学员标注图层' : '我的标注图层'"
+                @click="toggleMyLayer"
+              >
+                <span class="pill-dot my" :class="{ 'is-on': canvasState.layers.my }"></span>
+                {{ canReview ? '学员标注' : '我的标注' }}
+              </button>
+            </div>
+
+            <!-- AI 算法选择与执行 -->
+            <div class="topbar-ai-ctl">
+              <el-select
+                v-model="aiPredictAlgorithm"
+                size="small"
+                class="ai-algo-select"
+                placeholder="算法"
+              >
+                <el-option value="multi_lesions" label="VM-UNet 多病灶分割 (HE/EX/SE)" />
+                <el-option value="ma_detection" label="CSU-EYES 微动脉瘤分割 (MA)" />
+              </el-select>
+              <el-button
+                type="primary"
+                size="small"
+                :loading="aiPredictLoading"
+                class="ai-run-btn"
+                @click="executeAiPredict"
+              >
+                ⚡ 运行预测
+              </el-button>
+            </div>
+          </div>
+
+          <div v-if="!dualView" class="eye-switch" aria-label="左右眼">
+            <button
+              type="button"
+              class="eye-btn"
+              :class="{ active: currentEyeCode === 'OD' || currentEyeCode === 'OU' }"
+              :disabled="!eyeHas('OD')"
+              :title="eyeHas('OD') ? '切换到右眼' : '这侧没有影像'"
+              @click="selectEye('OD')"
+            >
+              右眼 (OD)
+            </button>
+            <button
+              type="button"
+              class="eye-btn"
+              :class="{ active: currentEyeCode === 'OS' || currentEyeCode === 'OU' }"
+              :disabled="!eyeHas('OS')"
+              :title="eyeHas('OS') ? '切换到左眼' : '这侧没有影像'"
+              @click="selectEye('OS')"
+            >
+              左眼 (OS)
+            </button>
+            <span v-if="currentEyeCode === 'UNKNOWN'" class="eye-now">眼别未知</span>
+            <span v-else class="eye-now">当前 {{ currentEyeLabel }}</span>
+          </div>
+        </div>
+
         <!-- 多 role 影像 tabs -->
         <div
           v-if="!missingCaseId && source && availableRoles.length > 1"
@@ -1719,31 +1903,6 @@ const openNote = () => {
           </span>
         </div>
 
-        <div v-if="!missingCaseId && source && !dualView" class="eye-switch" aria-label="左右眼">
-          <button
-            type="button"
-            class="eye-btn"
-            :class="{ active: currentEyeCode === 'OD' || currentEyeCode === 'OU' }"
-            :disabled="!eyeHas('OD')"
-            :title="eyeHas('OD') ? '切换到右眼' : '这侧没有影像'"
-            @click="selectEye('OD')"
-          >
-            右眼
-          </button>
-          <button
-            type="button"
-            class="eye-btn"
-            :class="{ active: currentEyeCode === 'OS' || currentEyeCode === 'OU' }"
-            :disabled="!eyeHas('OS')"
-            :title="eyeHas('OS') ? '切换到左眼' : '这侧没有影像'"
-            @click="selectEye('OS')"
-          >
-            左眼
-          </button>
-          <span v-if="currentEyeCode === 'UNKNOWN'" class="eye-now">眼别未知</span>
-          <span v-else class="eye-now">当前 {{ currentEyeLabel }}</span>
-        </div>
-
         <div v-if="missingCaseId" class="empty">
           <span>请先选择一份病例，再开始阅片</span>
           <el-select
@@ -1764,7 +1923,7 @@ const openNote = () => {
           <span v-else class="empty-sub">病例库里还没有可阅的病例</span>
           <div class="empty-actions">
             <el-button v-if="canReview" size="small" type="primary" @click="openQualityTab">
-              去质量评估
+              去作业批阅
             </el-button>
             <el-button size="small" @click="router.push('/training/cases')">去病例库</el-button>
           </div>
@@ -1801,19 +1960,20 @@ const openNote = () => {
               <CoreRetinaStation
                 mode="reading"
                 :ref="(el) => bindEyeStation(code, el)"
-                :dicom-image-id="dicomIdFor(eyeBoards[code].imageUrl)"
+                :dicom-image-id="dicomIdFor(eyeBoards[code]?.imageUrl || '')"
                 :segmentation="activeEye === code ? (source?.segmentation || null) : null"
-                :image-url="eyeBoards[code].imageUrl"
+                :image-url="eyeBoards[code]?.imageUrl || ''"
                 :laterality="code"
                 :tool="eyeTool(code)"
-                :annotations="activeEye === code ? canvasState.annotations : eyeBoards[code].annotations"
-                :measurements="activeEye === code ? canvasState.measurements : eyeBoards[code].measurements"
-                :viewport="activeEye === code ? canvasState.viewport : eyeBoards[code].viewport"
+                :annotations="activeEye === code ? canvasState.annotations : (eyeBoards[code]?.annotations || [])"
+                :measurements="activeEye === code ? canvasState.measurements : (eyeBoards[code]?.measurements || [])"
+                :viewport="activeEye === code ? canvasState.viewport : (eyeBoards[code]?.viewport || canvasState.viewport)"
                 :layers="canvasState.layers"
                 :gold-annotations="activeEye === code ? ((source?.goldAnnotations || []) as AnnotationItem[]) : []"
                 :gold-overlay-url="activeEye === code ? (source?.lesionMaskUrl || '') : ''"
                 :heatmap-overlay-url="activeEye === code ? (source?.heatmapUrl || '') : ''"
-                :lesion-seg-url="lesionSegFor(eyeBoards[code].imageUrl)"
+                :ai-prediction-overlay-url="activeEye === code ? (aiPredictOverlayUrl || lesionSegUrl) : ''"
+                :lesion-seg-url="lesionSegFor(eyeBoards[code]?.imageUrl || '')"
                 :readonly="eyeReadonly(code)"
                 :highlight-id="activeEye === code ? highlightId : ''"
                 :show-lesion-labels="showLesionLabels"
@@ -1853,6 +2013,7 @@ const openNote = () => {
             :gold-annotations="(source?.goldAnnotations || []) as AnnotationItem[]"
             :gold-overlay-url="source?.lesionMaskUrl || ''"
             :heatmap-overlay-url="source?.heatmapUrl || ''"
+            :ai-prediction-overlay-url="aiPredictOverlayUrl || lesionSegUrl"
             :lesion-seg-url="lesionSegFor(currentImage)"
             :readonly="!canAnnotate || reviewMode || recordLocked"
             :highlight-id="highlightId"
@@ -1939,6 +2100,14 @@ const openNote = () => {
       v-model:visible="noteVisible"
       :note="null"
       :bind="noteBind"
+    />
+
+    <!-- 智能出题抽屉（逐图题与指南挖空题） -->
+    <ImageQuestionDrawer
+      v-model="questionDrawerVisible"
+      :case-id="caseId"
+      :image-url="currentImage"
+      :current-annotations="canvasState.annotations"
     />
 
     <!-- AI 辅助诊断弹窗（CSU-EYES 真实算法服务） -->
@@ -2179,20 +2348,125 @@ const openNote = () => {
 .pb-value.is-warn {
   color: #ffd58a;
 }
+.station-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 14px;
+  background: rgba(22, 24, 33, 0.95);
+  border-bottom: 1px solid #2a2d38;
+  box-sizing: border-box;
+  flex-wrap: wrap;
+  gap: 10px;
+  z-index: 5;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.topbar-title {
+  color: #8c93a0;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.layer-pill-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #14161d;
+  padding: 3px 6px;
+  border-radius: 8px;
+  border: 1px solid #2e3444;
+}
+
+.layer-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  color: #c5cad3;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.layer-pill:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+}
+
+.layer-pill.active {
+  background: #232938;
+  color: #ffffff;
+  border-color: #4080ff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.pill-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4e5969;
+  transition: all 0.2s;
+}
+
+.pill-dot.is-on {
+  background: #1677ff;
+  box-shadow: 0 0 6px #1677ff;
+}
+
+.pill-dot.gold.is-on {
+  background: #52c41a;
+  box-shadow: 0 0 6px #52c41a;
+}
+
+.pill-dot.ai.is-on {
+  background: #9254de;
+  box-shadow: 0 0 6px #9254de;
+}
+
+.pill-dot.my.is-on {
+  background: #fa8c16;
+  box-shadow: 0 0 6px #fa8c16;
+}
+
+.topbar-ai-ctl {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-algo-select {
+  width: 250px;
+}
+
+.ai-run-btn {
+  font-weight: 600;
+}
+
 .eye-switch {
   display: flex;
   align-items: center;
   gap: 8px;
-  align-self: stretch;
-  padding: 8px 12px 0;
+  margin-left: auto;
 }
 .eye-btn {
   background: #1c1f27;
   color: #f2f4f8;
   border: 1px solid #5c6574;
   border-radius: 6px;
-  padding: 5px 16px;
-  font-size: 14px;
+  padding: 5px 14px;
+  font-size: 13px;
   font-weight: 650;
   cursor: pointer;
 }

@@ -47,11 +47,15 @@ def _weight_file() -> Optional[Path]:
     return None
 
 
-def _empty(message: str) -> dict:
+def _empty(message: str, algorithm: str = "multi_lesions") -> dict:
+    algo_name = "VM-UNet 多病灶分割" if algorithm == "multi_lesions" else "CSU-EYES 微动脉瘤分割"
+    counts = {"HE": 0, "EX": 0, "SE": 0} if algorithm == "multi_lesions" else {"MA": 0}
     return {
         "available": False,
+        "algorithm": algorithm,
+        "algorithmName": algo_name,
         "overlayUrl": "",
-        "counts": {"HE": 0, "EX": 0, "SE": 0},
+        "counts": counts,
         "message": message,
     }
 
@@ -107,6 +111,8 @@ def _infer(image_path: Path, weight: Path, case_id: int) -> dict:
     parts = [f"{_LABELS[key]} {counts[key]} 像素" for key in ("HE", "EX", "SE")]
     return {
         "available": True,
+        "algorithm": "multi_lesions",
+        "algorithmName": "VM-UNet 多病灶分割",
         "overlayUrl": overlay_url,
         "counts": counts,
         "device": str(device),
@@ -115,13 +121,60 @@ def _infer(image_path: Path, weight: Path, case_id: int) -> dict:
     }
 
 
+async def _predict_ma(image_path: Path, case_id: int, eye: Optional[str] = "") -> dict:
+    from app.services import csu_eyes_client
+    from app.common.utils import save_b64_image_to_screening
+
+    try:
+        raw = await csu_eyes_client.detect_ma(image_path=image_path)
+    except HTTPException as exc:
+        return {
+            "available": False,
+            "algorithm": "ma_detection",
+            "algorithmName": "CSU-EYES 微动脉瘤分割",
+            "overlayUrl": "",
+            "counts": {"MA": 0},
+            "seconds": 0,
+            "message": f"微动脉瘤算法服务调用失败：{exc.detail}",
+        }
+    except Exception as exc:
+        return {
+            "available": False,
+            "algorithm": "ma_detection",
+            "algorithmName": "CSU-EYES 微动脉瘤分割",
+            "overlayUrl": "",
+            "counts": {"MA": 0},
+            "seconds": 0,
+            "message": f"微动脉瘤算法服务暂不可用：{exc}",
+        }
+
+    ma_count = int(raw.get("ma_count") or 0)
+    overlay_b64 = raw.get("overlay_base64") or ""
+    overlay_url = ""
+    if overlay_b64:
+        overlay_url = save_b64_image_to_screening(
+            overlay_b64,
+            prefix="ma_predict",
+            case_no=str(case_id),
+            suffix=(eye or "").lower(),
+        )
+        if not overlay_url:
+            overlay_url = f"data:image/png;base64,{overlay_b64}"
+
+    return {
+        "available": True,
+        "algorithm": "ma_detection",
+        "algorithmName": "CSU-EYES 微动脉瘤分割",
+        "overlayUrl": overlay_url,
+        "counts": {"MA": ma_count},
+        "seconds": float(raw.get("inference_time") or 0),
+        "message": f"微动脉瘤分割完成，共检出 {ma_count} 处微动脉瘤 (MA)。洋红/品红=微动脉瘤。",
+    }
+
+
 class LesionSegService:
     @staticmethod
     def run(db, user: User, case_id: int, image_url: str) -> dict:
-        role = user.role.code if user.role else ""
-        if role not in (RoleEnum.TEACHER.value, RoleEnum.ADMIN.value):
-            raise HTTPException(status_code=403, detail="多病灶分割仅对带教老师和管理员开放")
-
         source = ReadingService.get_image_source(db=db, user=user, case_id=case_id)
         raw = (image_url or "").strip().split("?", 1)[0]
         if raw not in _allowed_urls(source):
@@ -133,7 +186,7 @@ class LesionSegService:
         weight = _weight_file()
         if weight is None:
             return _empty("多病灶分割已接入，但权重文件 best_mdice.pth 不在服务器上。")
-        if not ( _vendor_root() / "predict_multilesions.py").is_file():
+        if not (_vendor_root() / "predict_multilesions.py").is_file():
             return _empty("多病灶分割已接入，但推理代码不在 backend/vendor/multi_lesions_seg。")
 
         try:
@@ -154,3 +207,51 @@ class LesionSegService:
             return _empty(f"多病灶分割没有完成：{exc}")
         except Exception as exc:
             return _empty(f"多病灶分割没有完成：{exc}")
+
+    @staticmethod
+    async def predict(
+        db,
+        user: User,
+        case_id: int,
+        image_url: str,
+        algorithm: str = "multi_lesions",
+        eye: Optional[str] = "",
+    ) -> dict:
+        source = ReadingService.get_image_source(db=db, user=user, case_id=case_id)
+        raw = (image_url or "").strip().split("?", 1)[0]
+        if raw not in _allowed_urls(source):
+            raise HTTPException(status_code=400, detail="这张图不属于当前病例")
+        image_path = _resolve_static_file(raw)
+        if image_path is None:
+            raise HTTPException(status_code=400, detail="找不到这张眼底原图的文件")
+
+        if algorithm == "ma_detection":
+            return await _predict_ma(image_path, case_id, eye)
+
+        # multi_lesions 算法（VM-UNet）
+        weight = _weight_file()
+        if weight is None:
+            return _empty("多病灶分割已接入，但权重文件 best_mdice.pth 不在服务器上。", algorithm="multi_lesions")
+        if not (_vendor_root() / "predict_multilesions.py").is_file():
+            return _empty("多病灶分割已接入，但推理代码不在 backend/vendor/multi_lesions_seg。", algorithm="multi_lesions")
+
+        try:
+            return _infer(image_path, weight, case_id)
+        except ModuleNotFoundError as exc:
+            missing = getattr(exc, "name", None) or "依赖"
+            return _empty(
+                "多病灶分割已接入，当前环境还跑不起来。"
+                f"缺少 {missing}。需要 PyTorch、scipy、einops、timm，"
+                "以及 mamba_ssm 提供的 selective_scan（模型前向走这条路径）。",
+                algorithm="multi_lesions",
+            )
+        except NameError as exc:
+            if "selective_scan" in str(exc):
+                return _empty(
+                    "多病灶分割已接入，但 mamba_ssm 的 selective_scan 不可用。"
+                    "只装 CPU 版 PyTorch 不够，模型前向需要这份算子。",
+                    algorithm="multi_lesions",
+                )
+            return _empty(f"多病灶分割没有完成：{exc}", algorithm="multi_lesions")
+        except Exception as exc:
+            return _empty(f"多病灶分割没有完成：{exc}", algorithm="multi_lesions")

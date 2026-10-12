@@ -193,18 +193,22 @@ class ImageQualityService:
         from pathlib import Path
 
         from app.services import csu_eyes_client
+        from app.services.case_image_service import CaseImageService
         from app.services.training_ai_service import _resolve_static_file
 
-        images = (
-            db.query(CaseImage)
-            .filter(
-                CaseImage.case_table == "training",
-                CaseImage.case_id == case_id,
-                CaseImage.role == "original",
+        # 若新表无 original 记录，先尝试从 TrainingCase.image_paths 自动同步补齐
+        images = CaseImageService.ensure_training_case_images(db, case_id=case_id)
+        if not images:
+            images = (
+                db.query(CaseImage)
+                .filter(
+                    CaseImage.case_table == "training",
+                    CaseImage.case_id == case_id,
+                    CaseImage.role == "original",
+                )
+                .order_by(CaseImage.sort_order, CaseImage.id)
+                .all()
             )
-            .order_by(CaseImage.sort_order, CaseImage.id)
-            .all()
-        )
 
         summary = {"total": len(images), "evaluated": 0, "failed": 0, "items": []}
 

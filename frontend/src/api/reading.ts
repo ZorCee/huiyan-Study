@@ -341,6 +341,31 @@ export const segmentLesions = (caseId: number, imageUrl: string) =>
     { timeout: 10 * 60 * 1000 }
   )
 
+export interface AiPredictParams {
+  imageUrl: string
+  algorithm: 'multi_lesions' | 'ma_detection'
+  eye?: string
+}
+
+export interface AiPredictResult {
+  available: boolean
+  algorithm: 'multi_lesions' | 'ma_detection'
+  algorithmName: string
+  overlayUrl: string
+  counts: Record<string, number>
+  device?: string
+  seconds?: number
+  message: string
+}
+
+export const aiPredict = (caseId: number, params: AiPredictParams) =>
+  http.post<AiPredictResult>(
+    `/reading/cases/${caseId}/ai-predict`,
+    params,
+    { showError: false },
+    { timeout: 10 * 60 * 1000 }
+  )
+
 /* ============ DICOMweb：影像与分割分离（报告 P1） ============ */
 
 /** 单个分段（如「微动脉瘤」「视盘」） */

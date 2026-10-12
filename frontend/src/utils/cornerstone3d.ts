@@ -317,17 +317,25 @@ const maskCache = new Map<string, HTMLImageElement>()
 
 /** 分段掩码的配色：与病灶标签同一套，图例才对得上 */
 export const SEGMENT_COLORS: Record<string, string> = {
-  微动脉瘤: '#fadb14',
+  微动脉瘤: '#eb2f96',
+  微血管瘤: '#eb2f96',
+  MA: '#eb2f96',
   视网膜出血: '#f53f3f',
   出血: '#f53f3f',
-  硬性渗出: '#ff7d00',
-  渗出: '#ff7d00',
+  HE: '#f53f3f',
+  硬性渗出: '#ffd700',
+  渗出: '#ffd700',
+  EX: '#ffd700',
   软性渗出: '#52c41a',
   棉绒斑: '#52c41a',
-  视盘: '#1677ff'
+  SE: '#52c41a',
+  视盘: '#1677ff',
+  OD: '#1677ff',
+  新生血管: '#13c2c2',
+  NV: '#13c2c2'
 }
 
-const FALLBACK_COLORS = ['#f53f3f', '#ff7d00', '#fadb14', '#52c41a', '#1677ff']
+const FALLBACK_COLORS = ['#f53f3f', '#ffd700', '#52c41a', '#eb2f96', '#1677ff', '#13c2c2']
 
 const hexToRgbTriplet = (hex: string): string => {
   const h = hex.replace('#', '')

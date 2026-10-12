@@ -290,6 +290,103 @@ class CaseImageService:
         db.refresh(rec)
         return rec
 
+    # ---------------- 自动同步：由 image_paths 补齐 biz_case_image ----------------
+
+    @staticmethod
+    def ensure_training_case_images(db: Session, case_id: int) -> List[CaseImage]:
+        """
+        当实训病例已存在 image_paths 但尚未注册到 biz_case_image 时，
+        自动提取并补齐登记为 role='original' 的原始影像记录。
+        保证质控门控与阅片工作台在两套数据结构下的强一致性。
+        """
+        from pathlib import Path
+        from app.db.models import TrainingCase
+        from app.services.training_ai_service import _resolve_static_file
+
+        # 检查是否已经存在 original 记录
+        existing = (
+            db.query(CaseImage)
+            .filter(
+                CaseImage.case_table == "training",
+                CaseImage.case_id == case_id,
+                CaseImage.role == "original",
+            )
+            .order_by(CaseImage.sort_order, CaseImage.id)
+            .all()
+        )
+        if existing:
+            return existing
+
+        case = db.query(TrainingCase).filter(TrainingCase.id == case_id).first()
+        if not case or not isinstance(case.image_paths, dict):
+            return []
+
+        created: List[CaseImage] = []
+        sort_idx = 0
+        for eye_key in ("OD", "OS", "OU", "UK"):
+            urls = case.image_paths.get(eye_key) or []
+            if not isinstance(urls, list):
+                continue
+            for url in urls:
+                if not isinstance(url, str) or not url.strip():
+                    continue
+                clean_url = url.strip()
+                # 检查该 URL 是否已登记（避免重复）
+                has_rec = (
+                    db.query(CaseImage)
+                    .filter(
+                        CaseImage.case_table == "training",
+                        CaseImage.case_id == case_id,
+                        CaseImage.file_url == clean_url,
+                    )
+                    .first()
+                )
+                if has_rec:
+                    if has_rec.role == "original" and has_rec not in created:
+                        created.append(has_rec)
+                    continue
+
+                file_name = clean_url.rsplit("/", 1)[-1]
+                file_size = 0
+                width = 0
+                height = 0
+
+                # 探测真实磁盘文件信息
+                local_path: Optional[Path] = _resolve_static_file(clean_url)
+                if local_path and local_path.is_file():
+                    try:
+                        file_size = local_path.stat().st_size
+                        from PIL import Image
+                        with Image.open(local_path) as im:
+                            width, height = im.size
+                    except Exception:
+                        pass
+                else:
+                    file_size = 1024
+
+                rec = CaseImage(
+                    case_table="training",
+                    case_id=case_id,
+                    role="original",
+                    eye=eye_key if eye_key in ("OD", "OS", "OU") else "UK",
+                    file_url=clean_url,
+                    file_name=file_name,
+                    file_size=file_size,
+                    width=width,
+                    height=height,
+                    sort_order=sort_idx,
+                    uploaded_by=getattr(case, "creator_id", None),
+                )
+                db.add(rec)
+                created.append(rec)
+                sort_idx += 1
+
+        if created:
+            db.commit()
+            for r in created:
+                db.refresh(r)
+        return created
+
     # ---------------- 写入：登记已有文件（导入脚本用） ----------------
 
     @staticmethod

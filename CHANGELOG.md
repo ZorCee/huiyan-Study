@@ -2,6 +2,63 @@
 
 本文档记录了平台自纳入 Git 版本管理以来的所有版本迭代内容与改动详情。
 
+## [v4.5] - 2026-10-12
+
+### 🎯 版本概述
+**影像题库与图像质量门控双引擎上线、阅片/实习工作站综合重构**。本版本围绕"评估有效性"主线，新引入按图绑定的临床影像题库系统与基于 CSU-EYES 模型的图像质量门控；同时对阅片工作站与学员实训工作站进行大尺度重构，正式落地多病灶分割服务接入、把质量门控作为强前置、把题目生成嵌入阅片侧栏等关键能力。
+
+### ✨ 新增功能 (Added)
+- **影像题库系统全新模块（题目全链路：生成 / 存储 / 出题 / 评判）**：
+  - **后端模型与 API**：
+    - 新增 `backend/app/db/models/question.py`（`Question` / `QuestionTypeEnum`）与 `backend/app/schemas/question.py`（题干/作答 Pydantic 模型）；
+    - 新增 `backend/app/api/v1/question.py` 路由接口；
+    - 新增 `backend/app/services/question_service.py` —— 题库与题目生成服务，能力：
+      - 支持**逐图出题**（强绑定 `imageId` 与病灶标注 ROI，确保题目与影像一一对应）；
+      - 内置**临床指南权威考点知识模板库**（遵循《我国糖尿病视网膜病变临床诊疗指南(2022 年)》等眼底病规范），可基于指南/分级标准**自动挖空题生成**；
+      - 题干文本相似度去重拦截，防止雷同题污染题库；
+      - 挖空题**模糊匹配评判**，支持等价答案容错（如 "2 / 2 个 / 至少 2 个" 视为一致）。
+  - **前端集成与 UI**：
+    - 新增 `frontend/src/api/question.ts` 题库 API 客户端；
+    - 新增 `frontend/src/views/reading/components/ImageQuestionDrawer.vue` —— 阅片侧栏**图像题目抽屉**，阅片过程中无缝弹出对应图片的临床题目；
+    - 新增 `frontend/src/components/CaseSelect.vue` 通用病例选择器组件，支持阅片/题库/分享多场景复用。
+- **图像质量门控服务（先质量后诊断）**：
+  - 新增 `backend/app/services/image_quality_service.py`：
+    - 复用平台已上线的 CSU-EYES ConvNeXt 图像质量三分类模型（`good / usable / poor / ungradable`），**不训练新模型**；
+    - 派生对象 `biz_case_image_quality` 与原始影像记录解耦，质量变化不污染影像主档；
+    - 实现"**先质量后诊断**"规则：图像未加载、眼别冲突或质量不可判读时，**绝不默认判为正常**；
+    - **降级而非阻断**：算法服务不可用时降级为"未评估"并记录原因，避免单点阻塞。
+  - 新增 `backend/tests/test_image_quality_gate.py`（116 行 pytest）—— 覆盖 `normalize_quality` / `parse_upstream` / 图像元数据构建与汇总等关键路径。
+  - 集成入口：在 `backend/app/main.py` 注册质量门控相关路由/`startup` 钩子，`backend/app/api/v1/router.py` 暴露对外接口。
+- **多病灶分割服务升级 (`backend/app/services/lesion_seg_service.py` +115)**：扩展多病灶并行推理管线，对接新增的题库校验与病灶 ROI 标注双向反馈链路。
+- **影像笔记编辑对话框重做 (`NoteEditDialog.vue` +58)**：支持在笔记内嵌病灶引用、影像题引用与质控标注，结构化字段满足教学复盘。
+
+### 🔨 重构与优化 (Changed / Refactored)
+- **阅片工作站重大重构 (`frontend/src/views/reading/index.vue` +442)**：
+  - 重写主页视图骨架，把影像渲染、AI 诊断对比、质控面板、题目抽屉、评审侧栏拆为可单独维护子模块；
+  - `frontend/src/views/reading/components/ReadingSidePanel.vue` (+58) 重组侧栏交互，顶部新增"图像题目 / 质控状态 / AI 比对 / 快捷评语胶囊"多 Tab；
+  - `ReadingQualityPanel.vue` / `ReadingReviewDialog.vue` 联调质控面板与评审对话框，质控结果作为前置门禁生效。
+  - 新增/扩展 `frontend/src/components/CoreRetinaStation.vue` (+145) 核心视网膜渲染组件，作为阅片、学员实训、技师工作站统一的影像渲染底座。
+- **学员实训工作站重构 (`frontend/src/views/practice/workstation.vue` +178 / `backend/app/services/practice_service.py` +268)**：
+  - 后端 `practice_service.py` 大尺度重构：固化"图像质量门控 → 题目解锁 → 作答 → 评判 → 归档"完整流水线；
+  - `backend/app/api/v1/practice.py` 同步调整接口契约；
+  - 前端 `workstation.vue` 适配新流水线，加载流程显示门控状态、题目抽屉与 AI 评注联动。
+- **病例影像一对多结构化 (`backend/app/services/case_image_service.py` +97)**：补全"同一病例多影像分组/角色(OD/OS/原图/标注图)"维护路径，配合题库与质控使用。
+- **病例浏览中枢继续精简 (`backend/app/services/case_browse_service.py` -27)**：配合教师端 v4.4 精简路线，删除重复的影像聚合分支，瘦身接口字段。
+- **辅助工具与渲染引擎适配**：
+  - `frontend/src/utils/cornerstone3d.ts` (+18) —— 适配新版 `CoreRetinaStation` 的视口重置与坐标系同步；
+  - `frontend/src/utils/finding-locate.ts` 病灶定位工具修正叠加层坐标系。
+- **培训/教学侧轻量化适配**：
+  - `backend/app/services/training_service.py` (+21) 配套接入影像题库；
+  - `backend/app/services/teaching_service.py` / `reading_service.py` 同步接口小幅补全；
+  - `backend/app/db/models/__init__.py` (+1) 导出新 `Question` 模型。
+
+### 🛡️ 安全 / 仓库治理 (Repo Hygiene)
+- `.gitignore` 增加 `scratch/` 目录排除（用于放未成形/一次性调试脚本，正式测试请使用 `backend/tests/` 下 pytest 体系）；
+- `*.tar.gz` 早已在 `.gitignore` 中，发布整包不会误入库；
+- 已在 `main` / `dev` / `v4-local` 三条分支同 `HEAD` 上完成 `v4.5` 提交，并打 `v4.5` tag 推送至 GitHub。
+
+---
+
 ## [v4.4] - 2026-09-28
 
 ### 🎯 版本概述

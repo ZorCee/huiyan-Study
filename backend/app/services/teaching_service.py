@@ -556,6 +556,8 @@ class TeachingService:
             db.add(new_case)
             db.flush()
             share.teaching_case_id = new_case.id
+            from app.services.case_image_service import CaseImageService
+            CaseImageService.ensure_training_case_images(db, new_case.id)
             msg_title = "教学病例入库已通过"
             msg_content = f"您提交的病例「{data.get('title', '')}」已通过审核，已入库公共教学病例库。"
         else:

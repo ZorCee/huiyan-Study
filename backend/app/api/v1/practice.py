@@ -86,8 +86,11 @@ def get_gold(
     current_user: CurrentUser,
     db: DbSession,
     caseId: int = Path(..., ge=1),
+    sessionId: Optional[int] = Query(None, description="练习会话 ID"),
 ):
-    data = PracticeService.get_gold_standard(db=db, user=current_user, case_id=caseId)
+    data = PracticeService.get_gold_standard(
+        db=db, user=current_user, case_id=caseId, session_id=sessionId,
+    )
     return success(data=data.model_dump(by_alias=True))
 
 

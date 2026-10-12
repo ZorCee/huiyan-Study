@@ -59,6 +59,42 @@ const currentDicomImageId = computed(() => {
 const record = ref<PracticeApi.PracticeRecord | null>(null)
 const textAnswers = ref<Record<string, string>>({})
 const textQuestions = computed(() => record.value?.textQuestions || [])
+const activeHighlightBox = ref<any>(null)
+const activeHighlightId = ref<string>('')
+
+const toggleQuestionRoi = (q: any) => {
+  const box = q.roiBox || q.roi_box
+  if (!box) {
+    ElMessage.info('本题无特定关联的 ROI 像素区域')
+    return
+  }
+  if (activeHighlightBox.value === box) {
+    activeHighlightBox.value = null
+    activeHighlightId.value = ''
+    ElMessage.info('已取消病灶考查区域高亮')
+  } else {
+    activeHighlightBox.value = box
+    activeHighlightId.value = q.relatedAnnotationId || ''
+    ElMessage.success('已在影像上锁定高亮该题考查病灶区域')
+  }
+}
+
+const getBlankAnswer = (qid: string, blankIndex: number) => {
+  const current = textAnswers.value[qid] || ''
+  const parts = current.split(' / ')
+  return parts[blankIndex - 1] || ''
+}
+
+const setBlankAnswer = (qid: string, blankIndex: number, val: string, totalBlanks: number) => {
+  const current = textAnswers.value[qid] || ''
+  const parts = current.split(' / ')
+  while (parts.length < totalBlanks) {
+    parts.push('')
+  }
+  parts[blankIndex - 1] = (val || '').trim()
+  textAnswers.value[qid] = parts.join(' / ')
+}
+
 const isExam = computed(() => record.value?.attemptKind === 'EXAM')
 const examContinues = computed(
   () => isExam.value && !record.value?.allowBack && (record.value?.nextSessionId || 0) > 0
@@ -185,19 +221,23 @@ const goldOverlayUrl = computed(() => {
 
 const goldLayerHint = computed(() => {
   const gold = goldData.value
-  if (!gold) return '提交之后才能看到金标准。'
+  if (!gold) {
+    return record.value?.answersOpen
+      ? '正在载入金标准图层...'
+      : '提交之后才能看到金标准。'
+  }
   const boxes = (gold.annotations || []).length
   const mask = !!gold.lesionMaskUrl
   if (boxes && mask) {
-    return '这例有专家标注框，也有一张病灶着色图。勾选后会叠在眼底图上：框是绿色虚线，着色图是半透明的。'
+    return '这例有专家标注框，也有一张病灶着色图。已自动叠加在眼底图上：框是绿色虚线，着色图是半透明的。'
   }
   if (boxes) {
-    return '这例有专家标注框，没有单独的金标准照片。勾选后，框以绿色虚线画在眼底图上。'
+    return '这例有专家标注框，没有单独的金标准照片。框以绿色虚线画在眼底图上。'
   }
   if (mask) {
-    return '这例没有标注框，但有一张病灶着色图。勾选后会半透明叠在眼底图上。'
+    return '这例为像素级病灶着色图（无单独矢量框）。已半透明叠在眼底图上。'
   }
-  return '这例没有金标准标注框，也没有病灶着色图。勾选后画面不会多出图层，不是没画出来。'
+  return '这例没有金标准标注框，也没有病灶着色图。'
 })
 
 /* ========== 诊断表单 ========== */
@@ -494,7 +534,7 @@ const loadGoldStandard = async () => {
   if (!cid) return
   if (!record.value?.answersOpen) return
   try {
-    goldData.value = await PracticeApi.getGoldStandard(cid)
+    goldData.value = await PracticeApi.getGoldStandard(cid, record.value?.id)
     canvasState.layers.gold = true
   } catch {
     goldData.value = null
@@ -812,6 +852,8 @@ watch(currentImageIndex, () => {
           :laterality="locateEye"
           :show-lesion-labels="showLesionLabels"
           :segmentation="record?.answersOpen ? (source?.segmentation || null) : null"
+          :highlight-box="activeHighlightBox"
+          :highlight-id="activeHighlightId"
           @update:annotations="onAnnotationsChange"
           @pick-label="onPickLabel"
           @update:measurements="onMeasurementsChange"
@@ -922,13 +964,37 @@ watch(currentImageIndex, () => {
           v-if="!viewMode && !reviewMode && record?.status === 'DRAFT' && textQuestions.length"
           class="panel-section"
         >
-          <h3>文字题</h3>
-          <p class="score-legend">知识点、选择、填空。交卷后计入这次总分。</p>
+          <h3>文字与临床题库</h3>
+          <p class="score-legend">逐图判读题与临床指南挖空题。交卷后计入本次总分。</p>
           <div v-for="(q, i) in textQuestions" :key="q.id" class="quiz-item">
             <div class="quiz-stem">
-              <el-tag size="small" effect="plain">{{ q.kindText }}</el-tag>
+              <el-tag
+                size="small"
+                :type="q.kind === 'guideline_blank' ? 'success' : (q.kind === 'image_level' ? 'warning' : 'info')"
+                effect="plain"
+              >
+                {{ q.kindText }}
+              </el-tag>
+              <el-tag v-if="q.sourceGuideline" size="small" type="info" class="guideline-badge">
+                {{ q.sourceGuideline }}
+              </el-tag>
               <span>{{ i + 1 }}. {{ q.stem }}</span>
             </div>
+
+            <!-- 逐图题 ROI 定位联动按钮 -->
+            <div v-if="q.roiBox || q.roi_box" class="quiz-roi-action">
+              <el-button
+                size="small"
+                :type="activeHighlightBox === (q.roiBox || q.roi_box) ? 'warning' : 'default'"
+                plain
+                @click="toggleQuestionRoi(q)"
+              >
+                🎯 {{ activeHighlightBox === (q.roiBox || q.roi_box) ? '取消高亮病灶' : '定位/高亮病灶区' }}
+              </el-button>
+              <span class="roi-hint">点击可在左侧影像上高亮锁定考查病灶区域</span>
+            </div>
+
+            <!-- 选择题 -->
             <el-radio-group
               v-if="q.options?.length"
               v-model="textAnswers[q.id]"
@@ -936,11 +1002,33 @@ watch(currentImageIndex, () => {
             >
               <el-radio v-for="opt in q.options" :key="opt" :value="opt">{{ opt }}</el-radio>
             </el-radio-group>
+
+            <!-- 多空指南填空 -->
+            <div
+              v-else-if="(q.blankConfig || q.blank_config) && (q.blankConfig || q.blank_config).length > 1"
+              class="multi-blank-wrap"
+            >
+              <div
+                v-for="b in (q.blankConfig || q.blank_config)"
+                :key="b.index"
+                class="blank-row"
+              >
+                <span class="blank-label">【第 {{ b.index }} 空】{{ b.label || '' }}：</span>
+                <el-input
+                  :model-value="getBlankAnswer(q.id, b.index)"
+                  :placeholder="'填写 ' + (b.label || `第${b.index}空`)"
+                  maxlength="40"
+                  @update:model-value="(val: string) => setBlankAnswer(q.id, b.index, val, (q.blankConfig || q.blank_config).length)"
+                />
+              </div>
+            </div>
+
+            <!-- 单空填空 / 简答 -->
             <el-input
               v-else
               v-model="textAnswers[q.id]"
-              placeholder="填在横线上的内容"
-              maxlength="40"
+              placeholder="请填写作答内容（多空时请用斜杠 / 隔开）"
+              maxlength="60"
             />
           </div>
         </div>
@@ -1020,14 +1108,33 @@ watch(currentImageIndex, () => {
             文字题：知识点、选择和填空答对的比例。版本 4 的成绩里它占总分的 20%，分级 25%、标注 40%、诊断 15%。没写算错。更早的成绩没有这项，显示「未考」。
           </p>
           <div v-if="record?.textItems?.length" class="text-result">
-            <h4>文字题</h4>
+            <h4>文字与临床题库判定报告</h4>
             <div v-for="item in record.textItems" :key="item.id" class="text-result-item">
               <div class="quiz-stem">
-                <el-tag size="small" effect="plain">{{ item.kindText }}</el-tag>
+                <el-tag
+                  size="small"
+                  :type="item.kind === 'guideline_blank' ? 'success' : (item.kind === 'image_level' ? 'warning' : 'info')"
+                  effect="plain"
+                >
+                  {{ item.kindText }}
+                </el-tag>
+                <el-tag v-if="item.sourceGuideline" size="small" type="info" class="guideline-badge">
+                  {{ item.sourceGuideline }} {{ item.sourceSection ? '· ' + item.sourceSection : '' }}
+                </el-tag>
                 <span :class="item.correct ? 'ok' : 'bad'">{{ item.correct ? '对' : '错' }}</span>
+                <span v-if="item.scoreRatio !== undefined && item.scoreRatio < 1.0 && item.scoreRatio > 0" class="partial-ok">
+                  (得分率 {{ Math.round(item.scoreRatio * 100) }}%)
+                </span>
               </div>
-              <p>{{ item.stem }}</p>
-              <p>你的答案：{{ item.yours || '未写' }}。标准答案：{{ item.expected }}。{{ item.explanation }}</p>
+              <p class="quiz-report-stem">{{ item.stem }}</p>
+              <div v-if="item.roiBox || item.roi_box" class="quiz-roi-action">
+                <el-button size="small" plain @click="toggleQuestionRoi(item)">
+                  🎯 复盘定位病灶区
+                </el-button>
+              </div>
+              <p>
+                你的答案：<span :class="item.correct ? 'ok-text' : 'bad-text'">{{ item.yours || '未写' }}</span>。标准答案：<strong class="expected-text">{{ item.expected }}</strong>。{{ item.explanation }}
+              </p>
             </div>
           </div>
           <p v-if="staleAnnotationCredit" class="score-legend">
@@ -1289,6 +1396,47 @@ watch(currentImageIndex, () => {
 .text-result-item p { margin: 4px 0; }
 .text-result-item .ok { color: #7be0a2; }
 .text-result-item .bad { color: #ffb4b4; }
+.text-result-item .partial-ok { color: #f59e0b; font-size: 12px; margin-left: 6px; }
+.text-result-item .ok-text { color: #7be0a2; font-weight: 500; }
+.text-result-item .bad-text { color: #ffb4b4; text-decoration: line-through; }
+.text-result-item .expected-text { color: #67c23a; }
+.quiz-report-stem { margin: 6px 0 !important; color: #f3f4f6; font-weight: 500; }
+
+.guideline-badge {
+  background: rgba(64, 158, 255, 0.12) !important;
+  border-color: rgba(64, 158, 255, 0.3) !important;
+  color: #79bbff !important;
+  font-size: 11px;
+}
+
+.quiz-roi-action {
+  margin: 6px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.roi-hint {
+  font-size: 11px;
+  color: #909399;
+}
+
+.multi-blank-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+.blank-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.blank-label {
+  font-size: 12px;
+  color: #b1b3b8;
+  white-space: nowrap;
+  min-width: 80px;
+}
 
 .score-grid {
   display: grid;

@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 from fastapi import HTTPException, status
-from sqlalchemy import desc, func, or_
+from sqlalchemy import String, cast, desc, func, or_
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -341,14 +341,17 @@ class TrainingService:
         q = db.query(TrainingCase).filter(TrainingCase.is_published == True)  # noqa: E712
 
         if query.keyword:
-            kw = f"%{query.keyword.strip()}%"
-            q = q.filter(
-                or_(
-                    TrainingCase.case_no.like(kw),
-                    TrainingCase.title.like(kw),
-                    TrainingCase.description.like(kw),
-                )
-            )
+            clean_kw = query.keyword.strip()
+            kw = f"%{clean_kw}%"
+            clauses = [
+                TrainingCase.case_no.like(kw),
+                TrainingCase.title.like(kw),
+                TrainingCase.description.like(kw),
+            ]
+            raw_id = clean_kw.lstrip("#").strip()
+            if raw_id:
+                clauses.append(cast(TrainingCase.id, String).like(f"%{raw_id}%"))
+            q = q.filter(or_(*clauses))
         if query.dr_level is not None:
             q = q.filter(TrainingCase.gold_dr_grade == str(query.dr_level))
         if query.difficulty:

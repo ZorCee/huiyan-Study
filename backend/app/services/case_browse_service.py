@@ -13,7 +13,7 @@ import re
 from typing import List, Optional, Tuple
 
 from fastapi import HTTPException, status
-from sqlalchemy import desc, or_
+from sqlalchemy import String, cast, desc, or_
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -377,7 +377,8 @@ class CaseBrowseService:
         q = _scope_query(db, user)
 
         if query.keyword:
-            kw = f"%{query.keyword.strip()}%"
+            clean_kw = query.keyword.strip()
+            kw = f"%{clean_kw}%"
             clauses = [
                 TrainingCase.case_no.like(kw),
                 TrainingCase.case_sn.like(kw),
@@ -386,6 +387,9 @@ class CaseBrowseService:
                 User.real_name.like(kw),
                 User.username.like(kw),
             ]
+            raw_id = clean_kw.lstrip("#").strip()
+            if raw_id:
+                clauses.append(cast(TrainingCase.id, String).like(f"%{raw_id}%"))
             # 学员检索不能靠姓名或手机号把人找出来
             role_code = user.role.code if user.role else None
             from app.common.case_utils import teaching_staff
@@ -420,9 +424,24 @@ class CaseBrowseService:
             q = q.filter(TrainingCase.created_at <= query.end_time)
 
         total = q.count()
+        if query.keyword:
+            clean_kw = query.keyword.strip()
+            raw_id = clean_kw.lstrip("#").strip()
+            if raw_id.isdigit():
+                from sqlalchemy import case as sa_case
+                int_id = int(raw_id)
+                q = q.order_by(
+                    sa_case((TrainingCase.id == int_id, 0), else_=1),
+                    sa_case((cast(TrainingCase.id, String).like(f"{raw_id}%"), 0), else_=1),
+                    TrainingCase.id.asc(),
+                )
+            else:
+                q = q.order_by(desc(TrainingCase.id))
+        else:
+            q = q.order_by(desc(TrainingCase.id))
+
         rows: List[TrainingCase] = (
-            q.order_by(desc(TrainingCase.id))
-            .offset((query.page - 1) * query.page_size)
+            q.offset((query.page - 1) * query.page_size)
             .limit(query.page_size)
             .all()
         )

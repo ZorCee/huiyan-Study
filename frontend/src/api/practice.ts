@@ -243,8 +243,10 @@ export const getCaseBrief = (caseId: number) =>
   http.get<CaseBriefForPractice>(`/practice/cases/${caseId}`)
 
 /** 病例金标准（学员需先提交才能查看） */
-export const getGoldStandard = (caseId: number) =>
-  http.get<GoldStandardData>(`/practice/cases/${caseId}/gold`)
+export const getGoldStandard = (caseId: number, sessionId?: number) =>
+  http.get<GoldStandardData>(`/practice/cases/${caseId}/gold`, {
+    params: sessionId ? { sessionId } : undefined
+  })
 
 /** 开始练习 */
 export const startPractice = (params: PracticeStartParams) =>
@@ -295,14 +297,24 @@ export const getUserStats = (userId: number) =>
 /** 全班级统计（教师/管理员） */
 export const getAllStats = () => http.get<PracticeStats>('/practice/stats/all')
 
-export type TextQuizKind = 'knowledge' | 'choice' | 'blank'
+export type TextQuizKind = 'knowledge' | 'choice' | 'blank' | 'image_level' | 'guideline_blank' | string
 
 export interface TextQuizQuestion {
   id: string
   kind: TextQuizKind
   kindText: string
   stem: string
-  options: string[]
+  options?: string[]
+  blankConfig?: Array<{ index: number; key?: string; label?: string; expected?: string; weight?: number }>
+  blank_config?: Array<{ index: number; key?: string; label?: string; expected?: string; weight?: number }>
+  roiBox?: Record<string, any> | [number, number, number, number] | null
+  roi_box?: Record<string, any> | [number, number, number, number] | null
+  relatedAnnotationId?: string | null
+  sourceGuideline?: string | null
+  sourceSection?: string | null
+  caseId?: number | null
+  imageId?: number | null
+  difficulty?: string
 }
 
 export interface TextQuizItemResult {
@@ -313,7 +325,13 @@ export interface TextQuizItemResult {
   yours: string
   expected: string
   correct: boolean
+  scoreRatio?: number
+  gradeMessage?: string
   explanation: string
+  roiBox?: Record<string, any> | [number, number, number, number] | null
+  roi_box?: Record<string, any> | [number, number, number, number] | null
+  sourceGuideline?: string | null
+  sourceSection?: string | null
 }
 
 export interface TextQuizResult {
