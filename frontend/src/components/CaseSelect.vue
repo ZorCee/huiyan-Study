@@ -304,7 +304,7 @@ onMounted(() => {
 .opt-id-tag {
   display: inline-block;
   padding: 1px 6px;
-  background-color: #ecf5ff;
+  background-color: var(--hy-c-primary-soft, #ecf5ff);
   color: #409eff;
   border: 1px solid #d9ecff;
   border-radius: 4px;
@@ -315,11 +315,11 @@ onMounted(() => {
 
 .opt-no {
   font-weight: 600;
-  color: #303133;
+  color: var(--hy-c-text, #303133);
 }
 
 .opt-title {
-  color: #606266;
+  color: var(--hy-c-text-2, #606266);
   max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -335,7 +335,7 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: 12px;
   font-size: 11px;
-  color: #909399;
+  color: var(--hy-c-text-3, #909399);
 }
 
 .meta-field {

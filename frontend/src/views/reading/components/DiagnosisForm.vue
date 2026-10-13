@@ -193,7 +193,7 @@ const visibleFields = computed(() => {
   font-size: 14px;
   font-weight: 600;
   line-height: 1.5;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   letter-spacing: 0.2px;
 }
 .req {
@@ -222,7 +222,7 @@ const visibleFields = computed(() => {
 .hint {
   margin-top: 5px;
   font-size: 13px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   line-height: 1.6;
 }
 .is-dark .label {

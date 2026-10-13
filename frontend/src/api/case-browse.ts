@@ -6,6 +6,7 @@
  * - 归档 / 取消归档
  */
 import http, { type PageResult } from '@/utils/request'
+import type { CaseFinding, FindingInput } from '@/utils/case-findings'
 
 /* ========== 枚举 ========== */
 export type CaseCategory = 'DR' | 'AMD' | 'GLAUCOMA' | 'HYPERTENSION' | 'NORMAL' | 'OTHER'
@@ -83,10 +84,25 @@ export interface CaseBrowseDetail extends CaseBrowseItem {
   goldLesions?: Array<Record<string, any>>
   passScore: number
   visits?: CaseVisitBrief[]
+  /** 多病种结论（仅教师/管理员返回） */
+  findings?: CaseFinding[]
+  findingConflicts?: string[]
+  /** 图像质控汇总与放行留痕（仅教师/管理员返回） */
+  qualitySummary?: CaseQualitySummary | null
+}
+
+export interface CaseQualitySummary {
+  level: 'good' | 'usable' | 'poor' | 'ungradable' | 'unknown'
+  levelText: string
+  lowQuality: boolean
+  eyes: Array<{ eye: string; eyeText: string; quality: string; qualityText: string; confidence: number }>
+  override: { by: number; at: string; reason: string } | null
 }
 
 export interface GoldStandardUpdate {
   goldDrGrade?: string | null
+  /** 传了就以它为准，并同步写回 goldDrGrade；来源记为人工 */
+  findings?: FindingInput[]
   goldDiagnosis?: string
   teachingPoints?: string
   passScore?: number
@@ -106,6 +122,8 @@ export interface CaseBrowseQuery {
   endTime?: string
   /** 只看影像不完整的病例 */
   onlyIncomplete?: boolean
+  /** 图像质控：LOW 差/不可判读，OK 合格，UNKNOWN 未质控 */
+  qualityLevel?: 'LOW' | 'OK' | 'UNKNOWN' | ''
   page?: number
   pageSize?: number
 }
@@ -247,6 +265,7 @@ export const updateGoldStandard = (caseId: number, params: GoldStandardUpdate) =
   )
 
 export interface CaseImportRow {
+  line: number
   registerNo: string
   title: string
   eyes: string[]
@@ -261,6 +280,9 @@ export interface CaseImportReport {
   passed: number
   failed: number
   rows: CaseImportRow[]
+  encoding: string
+  delimiter: string
+  emptyColumns: string[]
 }
 
 export const downloadImportTemplate = () =>

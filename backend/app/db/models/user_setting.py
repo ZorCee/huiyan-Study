@@ -39,7 +39,7 @@ class UserSetting(Base, TimestampMixin):
 
     # 显示偏好
     theme: Mapped[str] = mapped_column(
-        String(16), nullable=False, default=ThemeEnum.LIGHT.value,
+        String(16), nullable=False, default=ThemeEnum.AUTO.value,
         comment="主题模式：light/dark/auto",
     )
     font_size: Mapped[str] = mapped_column(

@@ -377,8 +377,8 @@ onMounted(() => {
 
 <style scoped>
 .card {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 12px;
   padding: 18px 20px;
   margin-bottom: 18px;
@@ -397,7 +397,7 @@ onMounted(() => {
   gap: 8px;
   font-size: 15px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .card-actions {
   display: flex;
@@ -407,11 +407,11 @@ onMounted(() => {
 .form-hint {
   margin-top: 4px;
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   line-height: 1.6;
 }
 .muted {
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 12px;
   font-weight: 400;
 }
@@ -421,13 +421,13 @@ onMounted(() => {
 .empty {
   padding: 36px 0;
   text-align: center;
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
   font-size: 14px;
 }
 :deep(.hospital-table .el-table__body tr) {
   cursor: pointer;
 }
 :deep(.is-current-hospital > td) {
-  background: #e8f3ff !important;
+  background: var(--hy-c-primary-soft, #e8f3ff) !important;
 }
 </style>

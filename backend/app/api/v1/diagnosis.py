@@ -21,7 +21,11 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 from app.common.response import success
 from app.core.dependencies import CurrentUser, DbSession, require_roles
 from app.db.models.user import RoleEnum
-from app.services.diagnosis_service import DiagnosisService
+from app.services.diagnosis_service import DiagnosisService, normalize_subject
+
+_SUBJECT_CODE_DESC = "选填：受检者编号（不要填姓名、手机号、身份证号）"
+_SUBJECT_GENDER_DESC = "选填：M / F，其它视为未知"
+_SUBJECT_AGE_DESC = "选填：年龄 0-130"
 
 router = APIRouter(
     prefix="/diagnosis",
@@ -63,9 +67,13 @@ async def diag_ma(
     file: UploadFile = File(..., description="眼底图（支持 PNG/JPG/TIFF/WEBP）"),
     eye: str = Form("UK", description="OD/OS/OU；UK 或空则按影像自动判断"),
     model_id: Optional[int] = Form(None, description="可选：CSU-EYES 模型 ID"),
+    subject_code: Optional[str] = Form(None, description=_SUBJECT_CODE_DESC),
+    subject_gender: Optional[str] = Form(None, description=_SUBJECT_GENDER_DESC),
+    subject_age: Optional[int] = Form(None, description=_SUBJECT_AGE_DESC),
 ):
     data = await DiagnosisService.ma_detection(
         db=db, user=current_user, file=file, eye=eye, model_id=model_id,
+        subject=normalize_subject(subject_code, subject_gender, subject_age),
     )
     return success(
         data=data.model_dump(by_alias=True),
@@ -87,6 +95,9 @@ async def diag_dr(
     left_eye_b64: Optional[str] = Form(None, description="左眼 base64（小程序端用）"),
     right_eye_b64: Optional[str] = Form(None, description="右眼 base64（小程序端用）"),
     model_id: Optional[int] = Form(None),
+    subject_code: Optional[str] = Form(None, description=_SUBJECT_CODE_DESC),
+    subject_gender: Optional[str] = Form(None, description=_SUBJECT_GENDER_DESC),
+    subject_age: Optional[int] = Form(None, description=_SUBJECT_AGE_DESC),
 ):
     # 兼容两种来源：multipart 文件（Web 端）或 base64 表单（微信小程序端）
     left = left_eye or (_b64_to_upload(left_eye_b64, "left_eye.png") if left_eye_b64 else None)
@@ -98,6 +109,7 @@ async def diag_dr(
         )
     data = await DiagnosisService.dr_grading(
         db=db, user=current_user, left_eye=left, right_eye=right, model_id=model_id,
+        subject=normalize_subject(subject_code, subject_gender, subject_age),
     )
     return success(
         data=data.model_dump(by_alias=True),
@@ -116,9 +128,13 @@ async def diag_comp(
     current_user: CurrentUser,
     file: UploadFile = File(..., description="眼底图（任意眼别）"),
     tasks: Optional[List[str]] = Form(None, description="任务清单：ma_detection / dr_grading"),
+    subject_code: Optional[str] = Form(None, description=_SUBJECT_CODE_DESC),
+    subject_gender: Optional[str] = Form(None, description=_SUBJECT_GENDER_DESC),
+    subject_age: Optional[int] = Form(None, description=_SUBJECT_AGE_DESC),
 ):
     data = await DiagnosisService.comprehensive(
         db=db, user=current_user, file=file, tasks=tasks,
+        subject=normalize_subject(subject_code, subject_gender, subject_age),
     )
     return success(
         data=data.model_dump(by_alias=True),

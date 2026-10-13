@@ -337,7 +337,10 @@ def stats(
     ),
 ):
     data = ScreeningService.stats(db=db, scope=scope)
-    return success(data=data.model_dump(by_alias=True))
+    resp = success(data=data.model_dump(by_alias=True))
+    # 统计必须实时：禁止浏览器 / 网关缓存
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 # ============================================================

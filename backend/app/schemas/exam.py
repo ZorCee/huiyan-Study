@@ -19,6 +19,65 @@ class ExamCreate(_CamelModel):
     difficulty: str = ""
     case_ids: List[int] = Field(default_factory=list)
     question_count: int = Field(3, ge=1, le=20)
+    # ALL / YEAR / BATCH / GROUP / PEOPLE
+    audience_scope: str = "ALL"
+    audience_values: List[str] = Field(default_factory=list)
+    audience_ids: List[int] = Field(default_factory=list)
+
+
+class ExamAudienceItem(_CamelModel):
+    value: str
+    label: str
+    count: int = 0
+
+
+class ExamAudienceStudent(_CamelModel):
+    id: int
+    name: str
+    username: str = ""
+    study_year: str = ""
+    rotation_batch: str = ""
+    mentor_group: str = ""
+
+
+class ExamAudienceOptions(_CamelModel):
+    total: int = 0
+    years: List[ExamAudienceItem] = Field(default_factory=list)
+    batches: List[ExamAudienceItem] = Field(default_factory=list)
+    groups: List[ExamAudienceItem] = Field(default_factory=list)
+    students: List[ExamAudienceStudent] = Field(default_factory=list)
+
+
+class ExamPreviewParams(_CamelModel):
+    case_ids: List[int] = Field(default_factory=list)
+
+
+class ExamPreviewQuestion(_CamelModel):
+    id: str
+    stem: str
+    question_type: str
+    type_text: str
+    # OWN 病例专属题 / GENERIC 题库通用题 / LEGACY 常规题（学员进入时随机抽）
+    source: str
+
+
+class ExamPreviewCase(_CamelModel):
+    case_id: int
+    case_no: str = ""
+    title: str = ""
+    own_count: int = 0
+    generic_count: int = 0
+    legacy_count: int = 0
+    questions: List[ExamPreviewQuestion] = Field(default_factory=list)
+
+
+class ExamPreviewOut(_CamelModel):
+    cases: List[ExamPreviewCase] = Field(default_factory=list)
+    total_questions: int = 0
+    own_total: int = 0
+    generic_total: int = 0
+    legacy_total: int = 0
+    type_counts: dict = Field(default_factory=dict)
 
 
 class ExamCaseOption(_CamelModel):
@@ -36,6 +95,7 @@ class ExamParticipant(_CamelModel):
     name: str
     username: str = ""
     state: str = ""
+    user_id: int = 0
 
 
 class ExamPaperOut(_CamelModel):
@@ -57,11 +117,23 @@ class ExamPaperOut(_CamelModel):
     closed_at: Optional[datetime] = None
     publisher_name: str = ""
     participants: List[ExamParticipant] = Field(default_factory=list)
-    # 学员侧：未进入 / 作答中 / 已交卷 / 缺考
+    audience_scope: str = "ALL"
+    audience_values: List[str] = Field(default_factory=list)
+    audience_ids: List[int] = Field(default_factory=list)
+    audience_label: str = "全体学员"
+    audience_count: int = 0
+    # 学员侧：READY 未进入 / DOING 作答中 / HANDED 已交卷 / ABSENT 缺考
+    # / TIMEOUT_BLANK 没有自己交卷、到时被系统补交的空白卷
     mine_status: str = ""
     # 本人已交卷后的平均分。未交卷、未参加时为空，不把别人的分数带出来。
     mine_score: Optional[float] = None
     mine_passed: Optional[bool] = None
+    # 重考能力扩展
+    max_attempts: int = 2
+    current_round: int = 1
+    remaining_attempts: int = 1
+    can_retake: bool = False
+    retake_hint: str = ""
 
 
 class ExamHandIn(_CamelModel):

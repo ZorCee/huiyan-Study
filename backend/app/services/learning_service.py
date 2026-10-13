@@ -3,7 +3,8 @@
 - 角色矩阵：
   STUDENT  仅可查看公共资料、管理个人收藏与笔记
   TEACHER  可上传、维护公共学习资料；可查看自己的收藏与笔记
-  ADMIN    全量数据管理权限（可删除任意笔记、维护任意资料）
+  ADMIN    可维护任意资料；个人笔记同样仅限本人读写，
+           查看他人笔记只能走 admin_* 只读接口（调用方负责写审计日志）
 """
 
 from typing import List, Optional
@@ -464,7 +465,7 @@ class LearningService:
         )
         if not n:
             raise HTTPException(404, detail=f"笔记不存在：{note_id}")
-        if n.user_id != user.id and not _is_admin(user):
+        if n.user_id != user.id:
             raise HTTPException(403, detail="仅本人可编辑该笔记")
 
         for field in (
@@ -487,8 +488,8 @@ class LearningService:
         )
         if not n:
             raise HTTPException(404, detail=f"笔记不存在：{note_id}")
-        if n.user_id != user.id and not _is_admin(user):
-            raise HTTPException(403, detail="仅本人或管理员可删除该笔记")
+        if n.user_id != user.id:
+            raise HTTPException(403, detail="仅本人可删除该笔记")
         db.delete(n)
         db.commit()
 
@@ -501,7 +502,7 @@ class LearningService:
         )
         if not n:
             raise HTTPException(404, detail=f"笔记不存在：{note_id}")
-        if n.user_id != user.id and not _is_admin(user):
+        if n.user_id != user.id:
             raise HTTPException(403, detail="无权查看该笔记")
         return _note_to_out(n)
 
@@ -509,41 +510,53 @@ class LearningService:
     def list_notes(
         db: Session, user: User, query: NoteListQuery,
     ) -> NotePage:
+        # 「我的笔记」对所有角色（含管理员）都只返回本人笔记，忽略 query.user_id；
+        # 管理员查看他人笔记请走 admin_list_notes（只读 + 审计）。
+        q = db.query(LearningNote).filter(LearningNote.user_id == user.id)
+        return _paginate_notes(q, query)
+
+    @staticmethod
+    def admin_list_notes(db: Session, query: NoteListQuery) -> NotePage:
         q = db.query(LearningNote)
+        if query.user_id:
+            q = q.filter(LearningNote.user_id == query.user_id)
+        return _paginate_notes(q, query)
 
-        # 学员/教师只能看自己；管理员且指定 user_id 时按 user_id 过滤，否则看全部
-        if _is_admin(user):
-            if query.user_id:
-                q = q.filter(LearningNote.user_id == query.user_id)
-        else:
-            q = q.filter(LearningNote.user_id == user.id)
+    @staticmethod
+    def admin_get_note(db: Session, note_id: int) -> NoteOut:
+        n = db.query(LearningNote).filter(LearningNote.id == note_id).first()
+        if not n:
+            raise HTTPException(404, detail=f"笔记不存在：{note_id}")
+        return _note_to_out(n)
 
-        if query.keyword:
-            kw = f"%{query.keyword.strip()}%"
-            q = q.filter(
-                or_(
-                    LearningNote.title.like(kw),
-                    LearningNote.content.like(kw),
-                    LearningNote.tags.like(kw),
-                )
+
+def _paginate_notes(q, query: NoteListQuery) -> NotePage:
+    if query.keyword:
+        kw = f"%{query.keyword.strip()}%"
+        q = q.filter(
+            or_(
+                LearningNote.title.like(kw),
+                LearningNote.content.like(kw),
+                LearningNote.tags.like(kw),
             )
-        if query.case_id:
-            q = q.filter(LearningNote.case_id == query.case_id)
-        if query.resource_id:
-            q = q.filter(LearningNote.resource_id == query.resource_id)
+        )
+    if query.case_id:
+        q = q.filter(LearningNote.case_id == query.case_id)
+    if query.resource_id:
+        q = q.filter(LearningNote.resource_id == query.resource_id)
 
-        total = q.count()
-        page = max(1, query.page)
-        size = max(1, min(200, query.page_size))
-        rows: List[LearningNote] = (
-            q.order_by(desc(LearningNote.updated_at), desc(LearningNote.id))
-            .offset((page - 1) * size)
-            .limit(size)
-            .all()
-        )
-        return NotePage(
-            total=total,
-            page=page,
-            page_size=size,
-            list=[_note_to_out(r) for r in rows],
-        )
+    total = q.count()
+    page = max(1, query.page)
+    size = max(1, min(200, query.page_size))
+    rows: List[LearningNote] = (
+        q.order_by(desc(LearningNote.updated_at), desc(LearningNote.id))
+        .offset((page - 1) * size)
+        .limit(size)
+        .all()
+    )
+    return NotePage(
+        total=total,
+        page=page,
+        page_size=size,
+        list=[_note_to_out(r) for r in rows],
+    )

@@ -26,8 +26,17 @@ class TeachingShareCreate(_CamelModel):
     share_scope: Literal["ALL", "YEAR", "BATCH", "GROUP", "PEOPLE"] = "ALL"
     scope_value: str = ""
     audience_ids: List[int] = []
-    expire_hours: int = Field(default=24, ge=1, le=720)
+    # 0 表示长期有效：不设到期时间，直到老师手动收回
+    expire_hours: int = Field(default=24, ge=0, le=720)
     hide_answers: bool = True
+
+
+class TeachingShareUpdate(_CamelModel):
+    """修改临时分享的发放范围和有效期；有效期从修改时刻重新计算。"""
+    share_scope: Literal["ALL", "YEAR", "BATCH", "GROUP", "PEOPLE"] = "ALL"
+    scope_value: str = ""
+    audience_ids: List[int] = []
+    expire_hours: int = Field(default=24, ge=0, le=720)
 
 
 class ShareStudentOut(_CamelModel):

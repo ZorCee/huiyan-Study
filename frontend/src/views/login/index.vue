@@ -82,7 +82,9 @@ const handleLogin = async () => {
     const loadingInstance = ElLoading.service({
       lock: true,
       text: '正在登录中…',
-      background: 'rgba(255,255,255,0.6)'
+      background: document.documentElement.classList.contains('dark')
+        ? 'rgba(15,17,22,0.6)'
+        : 'rgba(255,255,255,0.6)'
     })
     try {
       // 登录前先清掉旧的本地缓存，避免「上一个账号的角色」泄漏
@@ -323,19 +325,19 @@ const handleLogin = async () => {
   left: 0;
   right: 0;
   top: 50%;
-  border-top: 1px solid #e4e7ed;
+  border-top: 1px solid var(--hy-c-border-strong, #e4e7ed);
 }
 .oidc-divider span {
   position: relative;
   padding: 0 10px;
-  background: #fff;
+  background: var(--hy-c-surface, #fff);
 }
 .oidc-btn {
   width: 100%;
 }
 .oidc-hint {
   margin-top: 8px;
-  color: #909399;
+  color: var(--hy-c-text-3, #909399);
   font-size: 12px;
   text-align: center;
   line-height: 1.6;
@@ -346,7 +348,7 @@ const handleLogin = async () => {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background: linear-gradient(135deg, #eef4ff 0%, #f5f9ff 60%, #ffffff 100%);
+  background: linear-gradient(135deg, var(--hy-c-primary-soft, #eef4ff) 0%, var(--hy-c-page, #f5f9ff) 60%, var(--hy-c-surface, #ffffff) 100%);
 }
 
 .login-bg {
@@ -364,21 +366,21 @@ const handleLogin = async () => {
 .c1 {
   width: 520px;
   height: 520px;
-  background: #c7dbff;
+  background: var(--hy-c-primary-soft, #c7dbff);
   top: -120px;
   left: -120px;
 }
 .c2 {
   width: 420px;
   height: 420px;
-  background: #d6f0ff;
+  background: var(--hy-c-primary-soft, #d6f0ff);
   bottom: -100px;
   right: -80px;
 }
 .c3 {
   width: 280px;
   height: 280px;
-  background: #e6f7ec;
+  background: var(--hy-c-success-soft, #e6f7ec);
   top: 40%;
   left: 50%;
 }
@@ -410,7 +412,7 @@ const handleLogin = async () => {
 .logo {
   width: 56px;
   height: 56px;
-  background: #fff;
+  background: var(--hy-c-surface, #fff);
   border-radius: 14px;
   box-shadow: 0 6px 24px rgba(22, 119, 255, 0.18);
   display: flex;
@@ -421,13 +423,13 @@ const handleLogin = async () => {
   margin: 0;
   font-size: 30px;
   letter-spacing: 2px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   font-weight: 700;
 }
 .brand-text p {
   margin: 6px 0 0;
   font-size: 13px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   letter-spacing: 1.4px;
 }
 .features {
@@ -435,12 +437,12 @@ const handleLogin = async () => {
   flex-direction: column;
   gap: 14px;
   padding: 22px 24px;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--hy-c-glass, rgba(255, 255, 255, 0.7));
   backdrop-filter: blur(8px);
   border: 1px solid rgba(22, 119, 255, 0.08);
   border-radius: 14px;
   font-size: 14px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
 }
 .feature-item {
   display: flex;
@@ -463,7 +465,7 @@ const handleLogin = async () => {
 }
 .footer-tip {
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
 }
 
 .login-right {
@@ -474,7 +476,7 @@ const handleLogin = async () => {
   width: 100%;
   max-width: 420px;
   padding: 40px 36px;
-  background: #fff;
+  background: var(--hy-c-surface, #fff);
   border-radius: 16px;
   box-shadow: 0 18px 60px rgba(22, 119, 255, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
   border: 1px solid rgba(22, 119, 255, 0.06);
@@ -483,7 +485,7 @@ const handleLogin = async () => {
   display: flex;
   gap: 6px;
   padding: 4px;
-  background: #f2f4f8;
+  background: var(--hy-c-fill, #f2f4f8);
   border-radius: 12px;
   margin-bottom: 22px;
 }
@@ -495,12 +497,12 @@ const handleLogin = async () => {
   border-radius: 9px;
   font-size: 14px;
   font-weight: 600;
-  color: #64748b;
+  color: var(--hy-c-text-3, #64748b);
   cursor: pointer;
   transition: background 0.2s, color 0.2s, box-shadow 0.2s;
 }
 .role-tab.active {
-  background: #fff;
+  background: var(--hy-c-surface, #fff);
   color: var(--hy-primary);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
@@ -508,12 +510,12 @@ const handleLogin = async () => {
   margin: 0;
   font-size: 24px;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .card-header p {
   margin: 8px 0 24px;
   font-size: 13px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
 }
 .login-extra {
   display: flex;
@@ -536,7 +538,7 @@ const handleLogin = async () => {
   margin-top: 16px;
   text-align: center;
   font-size: 12px;
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
 }
 
 @media (max-width: 960px) {

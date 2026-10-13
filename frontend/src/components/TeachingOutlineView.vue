@@ -30,7 +30,7 @@ const parsed = computed(() => parseTeachingPoints(props.text || ''))
 dt {
   font-size: 13px;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 dd,
 .plain {
@@ -39,7 +39,7 @@ dd,
   word-break: break-word;
   line-height: 1.6;
   font-size: 14px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .dark dt,
 .dark dd,

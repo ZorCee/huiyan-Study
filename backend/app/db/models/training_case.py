@@ -4,10 +4,11 @@
 - 包含金标准（gold_standard_*）：教学正确答案与参考标注
 """
 
+from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import Boolean, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -121,6 +122,15 @@ class TrainingCase(Base, TimestampMixin):
     )
     gold_heatmap_path: Mapped[str] = mapped_column(
         String(255), nullable=False, default="", comment="金标准热力图URL"
+    )
+    quality_override_by: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, comment="不可判读图像人工放行人"
+    )
+    quality_override_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True, comment="不可判读图像人工放行时间"
+    )
+    quality_override_reason: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="", comment="不可判读图像人工放行理由"
     )
     teaching_points: Mapped[str] = mapped_column(
         Text, nullable=False, default="",

@@ -114,16 +114,18 @@ const filteredTasks = computed(() => {
   })
 })
 
-const localStats = computed(() => {
-  const total = stats.value.total || tasks.value.length
-  const red = stats.value.red || tasks.value.filter((t) => t.risk === 'red').length
-  const yellow = stats.value.yellow || tasks.value.filter((t) => t.risk === 'yellow').length
-  const green = stats.value.green || tasks.value.filter((t) => t.risk === 'green').length
-  const pending =
-    stats.value.pending ||
-    tasks.value.filter((t) => t.status === 'queued' || t.status === 'analyzing').length
-  return { total, red, yellow, green, pending }
-})
+/**
+ * 顶部统计完全以后端 /screening/stats（全量口径）为准。
+ * 用 ?? 而不是 ||：后端返回真实的 0 时必须显示 0，不能被队列长度替换。
+ */
+const localStats = computed(() => ({
+  total: stats.value.total ?? 0,
+  red: stats.value.red ?? 0,
+  yellow: stats.value.yellow ?? 0,
+  green: stats.value.green ?? 0,
+  pending: stats.value.pending ?? 0,
+  failed: stats.value.failed ?? 0
+}))
 
 const statusMap: Record<Status, { text: string; type: string }> = {
   queued: { text: '排队中', type: 'info' },
@@ -262,11 +264,11 @@ const fetchList = async (silent = false) => {
 
 const fetchStats = async () => {
   try {
-    // 「分析任务队列」头部统计：仅统计队列中未完成任务
-    const res = await ScreeningApi.getScreeningStats('queue')
+    // 顶部统计按全部筛查记录（按次数，不去重）；队列只显示未完成任务，两者范围不同
+    const res = await ScreeningApi.getScreeningStats()
     if (res) stats.value = res
   } catch {
-    /* 静默：localStats 会兜底 */
+    /* 静默：保留上一次成功的统计 */
   }
 }
 
@@ -798,7 +800,7 @@ onBeforeUnmount(stopPoll)
         <div class="stat-icon blue"><el-icon><DataAnalysis /></el-icon></div>
         <div class="stat-info">
           <div class="num">{{ localStats.total }}</div>
-          <div class="label">累计筛查</div>
+          <div class="label" title="全部筛查记录，每次 AI 判读计 1 次，不去重">累计筛查（按次）</div>
         </div>
       </div>
       <div class="stat-card">
@@ -825,7 +827,16 @@ onBeforeUnmount(stopPoll)
       <div class="stat-card">
         <div class="stat-icon gray"><el-icon><Refresh /></el-icon></div>
         <div class="stat-info">
-          <div class="num">{{ localStats.pending }}</div>
+          <div class="num">
+            {{ localStats.pending }}
+            <span
+              v-if="localStats.failed"
+              style="font-size: 13px; color: #f56c6c; font-weight: 500; margin-left: 4px;"
+              :title="`有 ${localStats.failed} 例分析失败待重新分析`"
+            >
+              ({{ localStats.failed }} 异常)
+            </span>
+          </div>
           <div class="label">分析中 / 排队</div>
         </div>
       </div>
@@ -843,7 +854,7 @@ onBeforeUnmount(stopPoll)
         <div class="task-title">
           <el-icon><Document /></el-icon>
           分析任务队列
-          <span class="count">{{ pagination.total || filteredTasks.length }}</span>
+          <span class="count" title="仅排队中 / 处理中 / 失败的任务，已完成的不在队列中">{{ pagination.total ?? filteredTasks.length }}</span>
         </div>
         <div class="task-filter">
           <DynamicFilter
@@ -1283,7 +1294,7 @@ onBeforeUnmount(stopPoll)
   z-index: 5;
   background: rgba(245, 247, 250, 0.85);
   backdrop-filter: blur(8px);
-  border-bottom: 1px solid #e5e6eb;
+  border-bottom: 1px solid var(--hy-c-border, #e5e6eb);
   margin: 0 -24px 20px;
   padding: 0 24px;
 }
@@ -1303,7 +1314,7 @@ onBeforeUnmount(stopPoll)
   gap: 10px;
   font-size: 16px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   letter-spacing: 0.6px;
 }
 .title .dot {
@@ -1328,8 +1339,8 @@ onBeforeUnmount(stopPoll)
   margin-bottom: 20px;
 }
 .stat-card {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 12px;
   padding: 16px 18px;
   display: flex;
@@ -1345,20 +1356,20 @@ onBeforeUnmount(stopPoll)
   align-items: center;
   justify-content: center;
 }
-.stat-icon.blue { background: #eef4ff; color: #1677ff; }
+.stat-icon.blue { background: var(--hy-c-primary-soft, #eef4ff); color: #1677ff; }
 .stat-icon.red { background: var(--hy-risk-red-bg); color: var(--hy-risk-red); }
 .stat-icon.yellow { background: var(--hy-risk-yellow-bg); color: var(--hy-risk-yellow); }
 .stat-icon.green { background: var(--hy-risk-green-bg); color: var(--hy-risk-green); }
-.stat-icon.gray { background: #f2f3f5; color: #86909c; }
+.stat-icon.gray { background: var(--hy-c-fill, #f2f3f5); color: var(--hy-c-text-3, #86909c); }
 .stat-info .num {
   font-size: 22px;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   line-height: 1.2;
 }
 .stat-info .label {
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   margin-top: 2px;
 }
 .red-text { color: var(--hy-risk-red); }
@@ -1366,8 +1377,8 @@ onBeforeUnmount(stopPoll)
 .green-text { color: var(--hy-risk-green); }
 
 .upload-card {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 12px;
   padding: 20px;
   display: grid;
@@ -1383,11 +1394,11 @@ onBeforeUnmount(stopPoll)
   margin: 12px 0 6px;
   font-size: 16px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .drop-sub {
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   margin-bottom: 14px;
 }
 
@@ -1397,7 +1408,7 @@ onBeforeUnmount(stopPoll)
   justify-content: space-between;
   margin-bottom: 8px;
   font-size: 12px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
 }
 .up-current {
   max-width: 70%;
@@ -1415,7 +1426,7 @@ onBeforeUnmount(stopPoll)
   align-items: center;
   gap: 10px;
   font-size: 13px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
 }
 .tip-no {
   display: inline-block;
@@ -1423,7 +1434,7 @@ onBeforeUnmount(stopPoll)
   height: 22px;
   line-height: 22px;
   text-align: center;
-  background: #eef4ff;
+  background: var(--hy-c-primary-soft, #eef4ff);
   color: #1677ff;
   border-radius: 4px;
   font-size: 12px;
@@ -1432,8 +1443,8 @@ onBeforeUnmount(stopPoll)
 }
 
 .task-card {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 12px;
   padding: 18px 20px;
 }
@@ -1451,7 +1462,7 @@ onBeforeUnmount(stopPoll)
   gap: 8px;
   font-size: 16px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .task-title .count {
   display: inline-block;
@@ -1459,7 +1470,7 @@ onBeforeUnmount(stopPoll)
   height: 22px;
   line-height: 22px;
   padding: 0 8px;
-  background: #eef4ff;
+  background: var(--hy-c-primary-soft, #eef4ff);
   color: #1677ff;
   border-radius: 11px;
   font-size: 12px;
@@ -1478,7 +1489,7 @@ onBeforeUnmount(stopPoll)
   gap: 10px;
   margin: 0 0 10px;
   padding: 8px 12px;
-  background: #fff7e6;
+  background: var(--hy-c-warning-soft, #fff7e6);
   border: 1px solid #ffe1a8;
   border-radius: 8px;
 }
@@ -1511,11 +1522,11 @@ onBeforeUnmount(stopPoll)
 .conf-num {
   margin-left: 6px;
   font-size: 12px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   vertical-align: middle;
 }
 
-.muted { color: #c9cdd4; }
+.muted { color: var(--hy-c-text-4, #c9cdd4); }
 
 .diag-cell {
   display: flex;
@@ -1524,7 +1535,7 @@ onBeforeUnmount(stopPoll)
 }
 .diag-summary {
   font-size: 12px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   margin-top: 2px;
 }
 .bound-tag {
@@ -1533,7 +1544,7 @@ onBeforeUnmount(stopPoll)
 }
 .empty {
   padding: 36px 0;
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
   font-size: 14px;
 }
 
@@ -1548,17 +1559,17 @@ onBeforeUnmount(stopPoll)
   align-items: flex-start;
   justify-content: space-between;
   margin-bottom: 16px;
-  border-bottom: 1px solid #eaecef;
+  border-bottom: 1px solid var(--hy-c-border, #eaecef);
   padding-bottom: 16px;
 }
 .report-title {
   font-size: 18px;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .report-sub {
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   margin-top: 4px;
   font-weight: 400;
 }
@@ -1566,17 +1577,17 @@ onBeforeUnmount(stopPoll)
   margin-bottom: 16px;
 }
 .report-conclusion {
-  background: #f7faff;
-  border: 1px solid #e0eafc;
+  background: var(--hy-c-primary-soft, #f7faff);
+  border: 1px solid var(--hy-c-border-strong, #e0eafc);
   border-radius: 8px;
   padding: 14px 16px;
   font-size: 13px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   line-height: 1.7;
 }
 .ck-title {
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   margin-bottom: 6px;
 }
 .suggestion {
@@ -1589,7 +1600,7 @@ onBeforeUnmount(stopPoll)
 }
 
 .refer-info {
-  background: #fff7f7;
+  background: var(--hy-c-danger-soft, #fff7f7);
   border: 1px solid #fde2e2;
   border-radius: 8px;
   padding: 12px 16px;
@@ -1603,10 +1614,10 @@ onBeforeUnmount(stopPoll)
 }
 .refer-row .lbl {
   flex: 0 0 76px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
 }
 .refer-row .val {
   flex: 1;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 </style>

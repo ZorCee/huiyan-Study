@@ -269,32 +269,59 @@ class QuestionService:
     def get_questions_for_case(
         cls, db: Session, case_id: int, image_url: Optional[str] = None
     ) -> List[Question]:
-        """获取属于该病例的专属逐图题以及通用指南挖空题"""
-        # 1. 查该病例绑定的逐图题
-        q = (
+        """病例专属题在前；不足 4 道时用通用题补齐，同病种的通用题优先。
+
+        顺序固定（专属题按 id 倒序，通用题按 id 正序），考试预览和学员实际拿到的题一致。
+        """
+        own, generics = cls.plan_for_case(db, case_id)
+        return own + generics
+
+    @classmethod
+    def plan_for_case(
+        cls, db: Session, case_id: int, size: int = 4
+    ) -> Tuple[List[Question], List[Question]]:
+        """返回 (专属题, 补充的通用题)，两者合计不超过 size。"""
+        own = (
             db.query(Question)
             .filter(Question.case_id == case_id, Question.is_active == True)  # noqa: E712
             .order_by(desc(Question.id))
+            .all()
         )
-        questions = q.all()
+        if len(own) >= size:
+            return own[:size], []
+        case = db.query(TrainingCase).filter(TrainingCase.id == case_id).first()
+        cat = (case.category if case else "") or "DR"
+        pool = (
+            db.query(Question)
+            .filter(Question.case_id.is_(None), Question.is_active == True)  # noqa: E712
+            .order_by(Question.id.asc())
+            .all()
+        )
+        from app.services import case_findings
+        from app.services.practice_service import CATEGORY_TEXT
 
-        # 2. 如果当前病例缺少专属题目，按病种与指南补齐通用题目
-        if len(questions) < 4:
-            case = db.query(TrainingCase).filter(TrainingCase.id == case_id).first()
-            cat = case.category if case else "DR"
-            generics = (
-                db.query(Question)
-                .filter(
-                    Question.case_id.is_(None),
-                    Question.is_active == True,  # noqa: E712
-                )
-                .order_by(Question.id.asc())
-                .limit(4 - len(questions))
-                .all()
-            )
-            questions.extend(generics)
+        diseases = case_findings.case_diseases(db, case) if case else [cat]
 
-        return questions
+        def marks_of(d: str) -> set:
+            return {d.lower(), str(CATEGORY_TEXT.get(d, "")).lower()} - {""}
+
+        primary_marks = marks_of(cat)
+        other_marks = set().union(*(marks_of(d) for d in diseases if d != cat)) - primary_marks if len(diseases) > 1 else set()
+
+        def matches(question: Question, marks: set) -> bool:
+            tags = [str(tag).lower() for tag in (question.tags or [])]
+            return any(mark == tag or mark in tag for tag in tags for mark in marks)
+
+        # 主病种的题优先，其次是病例涉及的其他病种，最后是其余通用题
+        def tier(question: Question) -> int:
+            if matches(question, primary_marks):
+                return 0
+            if other_marks and matches(question, other_marks):
+                return 1
+            return 2
+
+        ordered = sorted(pool, key=tier)
+        return own, ordered[: size - len(own)]
 
     @classmethod
     def grade_answer(cls, question: Question, student_answer: str) -> Tuple[bool, float, str]:

@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 from fastapi import HTTPException, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -26,8 +27,10 @@ from app.db.models import (
 )
 from app.db.models.user import actor_role_text
 from app.schemas.rotation import (
+    CaseOptionItem,
     GroupSummary,
     OptionItem,
+    PendingCaseItem,
     RotationBrief,
     RotationOptionsOut,
     RotationUpdate,
@@ -39,6 +42,7 @@ from app.schemas.rotation import (
     TaskOrder,
     TaskOut,
     TeacherHomeOut,
+    WeakCaseItem,
     WeakLabelBrief,
 )
 from app.services.common_service import learner_progress
@@ -46,6 +50,16 @@ from app.services.common_service import learner_progress
 _DONE = {"DONE", "LEARNED"}
 _OPEN = {"TODO", "DOING", "SHORT"}
 _UNGROUPED = "未分组"
+
+
+def _case_option_fields(row: TrainingCase) -> dict:
+    return {
+        "id": row.id,
+        "label": f"{row.case_no} · {row.title}",
+        "category": row.category or "",
+        "difficulty": row.difficulty or "",
+        "gold_dr_grade": str(row.gold_dr_grade or ""),
+    }
 
 
 def _group_label(value: str) -> str:
@@ -280,7 +294,7 @@ def _flag_due(due_on: str, done: bool) -> Tuple[bool, bool]:
 
 def _case_state(
     db: Session, user_id: int, case_id: int, pass_score: int,
-) -> Tuple[str, str, Optional[float]]:
+) -> Tuple[str, str, Optional[float], Optional[int]]:
     from app.services.practice_service import exam_locks_answers
 
     rows = (
@@ -289,10 +303,11 @@ def _case_state(
             PracticeSession.user_id == user_id,
             PracticeSession.case_id == case_id,
         )
+        .order_by(PracticeSession.id.desc())
         .all()
     )
     if not rows:
-        return "TODO", "未开始", None
+        return "TODO", "未开始", None, None
     locked = exam_locks_answers(db, user_id, case_id)
     submitted = [
         row for row in rows
@@ -303,12 +318,12 @@ def _case_state(
         and not (_is_exam_locked(row, locked))
     ]
     if any(bool(row.is_passed) or float(row.score_total or 0) >= pass_score for row in submitted):
-        best = max(float(row.score_total or 0) for row in submitted)
-        return "DONE", "已合格", round(best, 1)
+        best_row = max(submitted, key=lambda r: float(r.score_total or 0))
+        return "DONE", "已合格", round(float(best_row.score_total or 0), 1), best_row.id
     if submitted:
-        best = max(float(row.score_total or 0) for row in submitted)
-        return "SHORT", "未合格", round(best, 1)
-    return "DOING", "进行中", None
+        best_row = max(submitted, key=lambda r: float(r.score_total or 0))
+        return "SHORT", "未合格", round(float(best_row.score_total or 0), 1), best_row.id
+    return "DOING", "进行中", None, rows[0].id
 
 
 def _is_exam_locked(row: PracticeSession, locked: bool) -> bool:
@@ -337,8 +352,9 @@ def _student_task(
     acked: set,
     case_no: str,
 ) -> TaskOut:
+    session_id = None
     if task.kind == RotationTaskKindEnum.CASE.value and task.case_id:
-        status_code, status_text, score = _case_state(
+        status_code, status_text, score, session_id = _case_state(
             db, user_id, task.case_id, int(task.pass_score or rotation.pass_score),
         )
         title = _case_heading(task, case_no)
@@ -370,6 +386,7 @@ def _student_task(
         case_id=task.case_id,
         case_no=case_no,
         resource_id=task.resource_id,
+        session_id=session_id,
         tier=_tier(task),
         scope=getattr(task, "scope", None) or "ALL",
         scope_value=(getattr(task, "scope_value", None) or ""),
@@ -536,6 +553,9 @@ class RotationService:
                         status=row.status,
                         status_text=row.status_text,
                         score=row.score,
+                        case_id=row.case_id,
+                        session_id=row.session_id,
+                        resource_id=row.resource_id,
                     )
                     for row in bundle
                 ],
@@ -580,8 +600,30 @@ class RotationService:
             .order_by(LearningResource.id.asc())
             .all()
         )
+        own_drafts = (
+            db.query(TrainingCase)
+            .filter(
+                TrainingCase.creator_id == user.id,
+                TrainingCase.archive_status == CaseArchiveStatusEnum.ACTIVE.value,
+                or_(
+                    TrainingCase.is_published != True,  # noqa: E712
+                    TrainingCase.is_train_case != True,  # noqa: E712
+                ),
+            )
+            .order_by(TrainingCase.case_no.asc())
+            .all()
+        )
         return RotationOptionsOut(
-            cases=[OptionItem(id=row.id, label=f"{row.case_no} · {row.title}") for row in cases],
+            cases=[CaseOptionItem(**_case_option_fields(row)) for row in cases],
+            pending_cases=[
+                PendingCaseItem(
+                    **_case_option_fields(row),
+                    is_published=bool(row.is_published),
+                    is_train_case=bool(row.is_train_case),
+                    missing_step="未发布" if not row.is_published else "未开放练习",
+                )
+                for row in own_drafts
+            ],
             resources=[OptionItem(id=row.id, label=row.title) for row in resources],
         )
 
@@ -794,6 +836,147 @@ class RotationService:
             db.add(RotationTaskAck(task_id=task.id, user_id=user.id))
             db.commit()
         return RotationService._student(db, user, rotation, _tasks(db, rotation.id))
+
+    @staticmethod
+    def weak_detail(
+        db: Session,
+        user: User,
+        study_year: Optional[str] = None,
+        rotation_batch: Optional[str] = None,
+        mentor_group: Optional[str] = None,
+        user_id: Optional[int] = None,
+        label: str = "",
+        error_type: Optional[str] = None,
+    ) -> List[WeakCaseItem]:
+        from app.common.case_utils import flatten_image_paths
+
+        if user_id is not None:
+            if not _is_teacher(user) and user.id != user_id:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, "无权查看该学员错题明细")
+            target_students = db.query(User).filter(User.id == user_id).all()
+        else:
+            if not _is_teacher(user):
+                raise HTTPException(status.HTTP_403_FORBIDDEN, "只有带教老师和管理员可以查看错题明细")
+            students_q = (
+                db.query(User)
+                .join(Role, User.role_id == Role.id)
+                .filter(Role.code == RoleEnum.STUDENT.value)
+            )
+            if study_year:
+                if study_year == _UNGROUPED:
+                    students_q = students_q.filter(or_(User.study_year == "", User.study_year == None, User.study_year == _UNGROUPED))
+                else:
+                    students_q = students_q.filter(User.study_year == study_year)
+            if rotation_batch:
+                if rotation_batch == _UNGROUPED:
+                    students_q = students_q.filter(or_(User.rotation_batch == "", User.rotation_batch == None, User.rotation_batch == _UNGROUPED))
+                else:
+                    students_q = students_q.filter(User.rotation_batch == rotation_batch)
+            if mentor_group:
+                if mentor_group == _UNGROUPED:
+                    students_q = students_q.filter(or_(User.mentor_group == "", User.mentor_group == None, User.mentor_group == _UNGROUPED))
+                else:
+                    students_q = students_q.filter(User.mentor_group == mentor_group)
+            target_students = students_q.all()
+
+        if not target_students:
+            return []
+
+        user_map = {s.id: s for s in target_students}
+        user_ids = list(user_map.keys())
+
+        locked = {
+            row[0]
+            for row in db.query(PracticeSession.exam_group_id)
+            .filter(
+                PracticeSession.user_id.in_(user_ids),
+                PracticeSession.attempt_kind == "EXAM",
+                PracticeSession.status == PracticeStatusEnum.DRAFT.value,
+                PracticeSession.exam_group_id != "",
+            )
+            .all()
+            if row[0]
+        }
+
+        sessions = (
+            db.query(PracticeSession)
+            .filter(
+                PracticeSession.user_id.in_(user_ids),
+                PracticeSession.status.in_([
+                    PracticeStatusEnum.SUBMITTED.value,
+                    PracticeStatusEnum.REVIEWED.value,
+                ]),
+            )
+            .order_by(PracticeSession.submitted_at.desc(), PracticeSession.id.desc())
+            .all()
+        )
+
+        case_ids = {s.case_id for s in sessions if s.case_id}
+        case_map = {}
+        if case_ids:
+            cases = db.query(TrainingCase).filter(TrainingCase.id.in_(case_ids)).all()
+            case_map = {c.id: c for c in cases}
+
+        results: List[WeakCaseItem] = []
+        target_label = (label or "").strip()
+        target_error_type = (error_type or "").strip()
+
+        for s in sessions:
+            if (s.attempt_kind or "") == "EXAM" and (s.exam_group_id or "") in locked:
+                continue
+            points = s.error_points or []
+            if not isinstance(points, list):
+                continue
+
+            stu = user_map.get(s.user_id)
+            c = case_map.get(s.case_id)
+            case_no = c.case_no if c else ""
+            case_title = c.title if c else ""
+            gold_dr = str(c.gold_dr_grade or "") if c else ""
+            images = flatten_image_paths(c.image_paths) if c else []
+            img_url = images[0] if images else ""
+
+            matched_notes = []
+            found_kind = ""
+            found_label = ""
+
+            for point in points:
+                if not isinstance(point, dict):
+                    continue
+                p_label = str(point.get("label") or point.get("expectedLabel") or "").strip()
+                p_kind = point.get("type") or ""
+
+                if target_label and p_label != target_label:
+                    continue
+                if target_error_type and p_kind != target_error_type:
+                    continue
+
+                found_label = p_label
+                found_kind = p_kind
+                note = point.get("note") or ("漏诊" if p_kind == "missed" else "误诊")
+                if note not in matched_notes:
+                    matched_notes.append(note)
+
+            if matched_notes:
+                sub_at = s.submitted_at.isoformat() if s.submitted_at else ""
+                results.append(WeakCaseItem(
+                    session_id=s.id,
+                    user_id=s.user_id,
+                    student_name=(stu.real_name or stu.username) if stu else "",
+                    username=stu.username if stu else "",
+                    case_id=s.case_id,
+                    case_no=case_no,
+                    case_title=case_title,
+                    image_url=img_url,
+                    gold_dr_grade=gold_dr,
+                    error_type=found_kind or target_error_type or "missed",
+                    label=found_label or target_label,
+                    note="；".join(matched_notes),
+                    score_total=float(s.score_total or 0.0),
+                    submitted_at=sub_at,
+                ))
+
+        return results
 
 
 def _group_weak_labels(db: Session, user_ids: List[int]) -> List[WeakLabelBrief]:

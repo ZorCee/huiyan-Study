@@ -63,7 +63,7 @@ onMounted(async () => {
         <el-avatar
           :size="collapsed ? 32 : 40"
           :src="userInfo.avatar"
-          style="background:#eef4ff;color:#1677ff"
+          style="background:var(--hy-c-primary-soft, #eef4ff);color:#1677ff"
         >
           {{ displayName.charAt(0) }}
         </el-avatar>

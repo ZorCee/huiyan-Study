@@ -469,8 +469,8 @@ const runBackfill = async (overwrite = false) => {
 
 <style scoped>
 .card {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 12px;
   padding: 18px 20px;
   margin-bottom: 18px;
@@ -486,7 +486,7 @@ const runBackfill = async (overwrite = false) => {
 .card-title {
   font-size: 15px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -495,18 +495,18 @@ const runBackfill = async (overwrite = false) => {
   color: #1677ff;
 }
 .muted {
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 12px;
   font-weight: 400;
 }
 .hint {
   margin-top: 6px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 12px;
 }
 .hint code,
 .probe-meta code {
-  background: #f2f3f5;
+  background: var(--hy-c-fill, #f2f3f5);
   padding: 1px 6px;
   border-radius: 4px;
   font-size: 12px;
@@ -545,8 +545,8 @@ const runBackfill = async (overwrite = false) => {
   margin-bottom: 18px;
 }
 .ov-card {
-  background: #fafbfc;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-fill, #fafbfc);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 10px;
   padding: 14px 16px;
   display: flex;
@@ -559,14 +559,14 @@ const runBackfill = async (overwrite = false) => {
 }
 .ov-card.warn-card:hover {
   border-color: #ff7d00;
-  background: #fff7e6;
+  background: var(--hy-c-warning-soft, #fff7e6);
 }
 .ov-icon {
   width: 40px;
   height: 40px;
   border-radius: 8px;
   font-size: 20px;
-  background: #eef4ff;
+  background: var(--hy-c-primary-soft, #eef4ff);
   color: #1677ff;
   display: flex;
   align-items: center;
@@ -583,12 +583,12 @@ const runBackfill = async (overwrite = false) => {
 .ov-info .ov-num {
   font-size: 22px;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   line-height: 1.2;
 }
 .ov-info .ov-label {
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   margin-top: 2px;
 }
 .blue-text {
@@ -601,12 +601,12 @@ const runBackfill = async (overwrite = false) => {
 .sub-title {
   font-size: 13px;
   font-weight: 600;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   margin-bottom: 10px;
 }
 .distrib-card {
-  background: #fafbfc;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-fill, #fafbfc);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 10px;
   padding: 14px 16px;
   margin-bottom: 14px;
@@ -617,8 +617,8 @@ const runBackfill = async (overwrite = false) => {
   gap: 8px;
 }
 .grade-cell {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 8px;
   padding: 10px 4px;
   text-align: center;
@@ -630,19 +630,19 @@ const runBackfill = async (overwrite = false) => {
 }
 .g-label {
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   margin-top: 2px;
 }
 .empty {
   padding: 12px 0;
   text-align: center;
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
   font-size: 13px;
 }
 
 .sample-card {
-  background: #fafbfc;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-fill, #fafbfc);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 10px;
   padding: 14px 16px;
 }

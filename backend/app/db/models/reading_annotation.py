@@ -88,10 +88,10 @@ class ReadingAnnotation(Base, TimestampMixin):
         String(16), nullable=False, default=ReadingStatusEnum.DRAFT.value,
         index=True, comment="状态：DRAFT/SUBMITTED/REVIEWED",
     )
-    # READING：阅片作业。QUALITY：学员提交的影像质量评估，须教师审核后才算通过。
+    # READING：阅片作业。QUALITY：学员提交的图像质控，须教师审核后才算通过。
     record_kind: Mapped[str] = mapped_column(
         String(16), nullable=False, default="READING",
-        index=True, comment="READING 阅片作业 / QUALITY 质量评估",
+        index=True, comment="READING 阅片作业 / QUALITY 图像质控",
     )
 
     # 结构化诊断结论（报告 P1：仅自由备注导致结论难评分、难审计、难统计）

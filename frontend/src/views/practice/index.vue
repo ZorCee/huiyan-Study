@@ -98,10 +98,10 @@ const fetchExams = async () => {
     exams.value = []
   }
 }
-const enterExam = async (paper: ExamPaper) => {
+const enterExam = async (paper: ExamPaper, isRetake = false) => {
   examStartingId.value = paper.id
   try {
-    const rec = await ExamApi.startExam(paper.id)
+    const rec = await ExamApi.startExam(paper.id, { retake: isRetake })
     router.push({
       path: '/practice/workstation',
       query: {
@@ -114,43 +114,79 @@ const enterExam = async (paper: ExamPaper) => {
     examStartingId.value = 0
   }
 }
-const handedExams = computed(() => exams.value.filter((paper) => paper.mineStatus === 'HANDED'))
+
+const handleRetakeExam = async (paper: ExamPaper) => {
+  const remaining = paper.remainingAttempts != null ? paper.remainingAttempts : 1
+  try {
+    await ElMessageBox.confirm(
+      `确定重新考试？\n重新作答将开启新一轮独立限时考核（剩余 ${remaining} 次机会），系统将记录最高成绩。`,
+      '重新考试确认',
+      {
+        confirmButtonText: '开始重考',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch {
+    return
+  }
+  await enterExam(paper, true)
+}
+
+const isFinished = (paper: ExamPaper) =>
+  paper.mineStatus === 'HANDED' || paper.mineStatus === 'TIMEOUT_BLANK'
+const handedExams = computed(() => exams.value.filter(isFinished))
 const doingExams = computed(() => exams.value.filter((paper) => paper.mineStatus === 'DOING'))
 const pendingExams = computed(() =>
-  exams.value.filter((paper) => paper.mineStatus !== 'HANDED' && paper.mineStatus !== 'DOING')
+  exams.value.filter((paper) => !isFinished(paper) && paper.mineStatus !== 'DOING')
 )
 const examStatusText = (paper: ExamPaper) => {
-  if (paper.mineStatus === 'HANDED') return '已交卷'
-  if (paper.mineStatus === 'DOING') return '作答中'
+  const roundSuffix = (paper.currentRound && paper.currentRound > 1) ? ` (第${paper.currentRound}次)` : ''
+  if (paper.mineStatus === 'HANDED') return `已交卷${roundSuffix}`
+  if (paper.mineStatus === 'TIMEOUT_BLANK') return `超时未作答${roundSuffix}`
+  if (paper.mineStatus === 'DOING') return `作答中${roundSuffix}`
   if (paper.mineStatus === 'ABSENT') return '缺考'
   return '未参加'
 }
 const examStatusType = (paper: ExamPaper): 'success' | 'warning' | 'danger' | 'info' => {
   if (paper.mineStatus === 'HANDED') return 'success'
+  if (paper.mineStatus === 'TIMEOUT_BLANK') return 'danger'
   if (paper.mineStatus === 'DOING') return 'warning'
   if (paper.mineStatus === 'ABSENT') return 'danger'
   return 'info'
 }
 const examScoreText = (paper: ExamPaper) => {
+  if (paper.mineStatus === 'TIMEOUT_BLANK') {
+    if (paper.canRetake) {
+      return `上一轮超时未作答被系统自动收卷。可重新作答（剩余 ${paper.remainingAttempts || 0} 次机会）。`
+    }
+    return '进入后没有作答，考试时间到系统已自动收卷。如需重考请联系老师重置。'
+  }
   if (paper.mineStatus === 'DOING') return '还在作答，交卷后才有总分。'
   if (paper.mineStatus !== 'HANDED' || paper.mineScore == null) return ''
   const mark = paper.minePassed ? '合格' : '不合格'
   const score = Number(paper.mineScore).toFixed(1)
-  if (paper.status === 'CLOSED') return `得分 ${score} · ${mark}`
-  return `得分 ${score} · ${mark}。标准答案等老师收卷后再看。`
+  const roundInfo = (paper.currentRound && paper.currentRound > 1) ? `（第 ${paper.currentRound} 次）` : ''
+  if (paper.status === 'CLOSED') return `最终成绩：得分 ${score} · ${mark}`
+  const retakeHint = paper.canRetake ? ` · 剩余重考机会 ${paper.remainingAttempts} 次` : ''
+  return `已交卷${roundInfo}，等老师收卷后公布答案和金标准。系统初评：${score} · ${mark}${retakeHint}`
 }
 const examActionText = (paper: ExamPaper) => {
   if (paper.mineStatus === 'ABSENT') return '未参加'
   if (paper.mineStatus === 'DOING') return '继续考试'
   if (paper.mineStatus === 'HANDED' && paper.status === 'CLOSED') return '查看成绩'
-  if (paper.mineStatus === 'HANDED') return '已交卷'
+  if (paper.canRetake) return `重新考试${paper.remainingAttempts != null ? ` (剩${paper.remainingAttempts}次)` : ''}`
+  if (paper.mineStatus === 'HANDED') return paper.remainingAttempts === 0 ? '已达重考上限' : '已交卷'
+  if (paper.mineStatus === 'TIMEOUT_BLANK') return '待老师重置'
   if (paper.status === 'CLOSED') return '已收卷'
   return '进入考试'
 }
 const examActionDisabled = (paper: ExamPaper) => {
   if (paper.mineStatus === 'ABSENT') return true
   if (paper.status === 'CLOSED' && paper.mineStatus !== 'HANDED') return true
-  return paper.mineStatus === 'HANDED' && paper.status !== 'CLOSED'
+  if (paper.mineStatus === 'TIMEOUT_BLANK' && !paper.canRetake) return true
+  if (paper.mineStatus === 'HANDED' && paper.status !== 'CLOSED' && !paper.canRetake) return true
+  return false
 }
 
 /* ========== 自选病例 — 通过病例浏览页跳转 ========== */
@@ -303,14 +339,40 @@ onActivated(() => {
                       </div>
                       <div v-if="examScoreText(paper)" class="exam-score">{{ examScoreText(paper) }}</div>
                     </div>
-                    <el-button
-                      type="warning"
-                      :loading="examStartingId === paper.id"
-                      :disabled="examActionDisabled(paper)"
-                      @click="enterExam(paper)"
-                    >
-                      {{ examActionText(paper) }}
-                    </el-button>
+                    <div class="exam-row-actions">
+                      <el-button
+                        v-if="paper.status === 'CLOSED'"
+                        type="primary"
+                        :loading="examStartingId === paper.id"
+                        @click="enterExam(paper)"
+                      >
+                        查看成绩
+                      </el-button>
+                      <template v-else>
+                        <el-button
+                          v-if="paper.canRetake"
+                          type="warning"
+                          :loading="examStartingId === paper.id"
+                          @click="handleRetakeExam(paper)"
+                        >
+                          重新考试{{ paper.remainingAttempts != null ? ` (剩${paper.remainingAttempts}次)` : '' }}
+                        </el-button>
+                        <el-button
+                          v-else-if="paper.remainingAttempts === 0"
+                          type="info"
+                          disabled
+                        >
+                          已达重考上限
+                        </el-button>
+                        <el-button
+                          v-else
+                          type="info"
+                          disabled
+                        >
+                          已交卷
+                        </el-button>
+                      </template>
+                    </div>
                   </div>
                 </section>
                 <section v-if="doingExams.length" class="exam-group">
@@ -594,8 +656,8 @@ onActivated(() => {
                   <span v-if="row.status === 'DRAFT'" style="color: #c9cdd4">—</span>
                   <template v-else>
                     <span v-if="row.teacherName">{{ actorLabel(row.teacherName, row.teacherRole) }}</span>
-                    <span v-else style="color: #86909c">系统评分</span>
-                    <div v-if="row.teacherComment" style="color: #4e5969; font-size: 12px">
+                    <span v-else style="color: var(--hy-c-text-3, #86909c)">系统评分</span>
+                    <div v-if="row.teacherComment" style="color: var(--hy-c-text-2, #4e5969); font-size: 12px">
                       {{ row.teacherComment }}
                     </div>
                   </template>
@@ -724,14 +786,14 @@ onActivated(() => {
 <style scoped>
 .practice-page {
   min-height: 100vh;
-  background: #f5f7fa;
+  background: var(--hy-c-fill, #f5f7fa);
   display: flex;
   flex-direction: column;
 }
 .page-header {
   height: 56px;
-  background: #fff;
-  border-bottom: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border-bottom: 1px solid var(--hy-c-border, #e5e6eb);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -745,10 +807,10 @@ onActivated(() => {
 .page-header .title {
   font-size: 16px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .user-mini {
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   font-size: 13px;
 }
 .page-body {
@@ -797,7 +859,7 @@ onActivated(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
   font-size: 12px;
   background: #1d2129;
 }
@@ -807,7 +869,7 @@ onActivated(() => {
 .case-info h2 {
   margin: 0 0 12px;
   font-size: 22px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .case-meta {
   display: flex;
@@ -817,7 +879,7 @@ onActivated(() => {
 }
 .pass-line {
   font-size: 13px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   margin-bottom: 16px;
 }
 .pass-line strong {
@@ -834,13 +896,13 @@ onActivated(() => {
 .exam-group + .exam-group {
   margin-top: 14px;
   padding-top: 8px;
-  border-top: 1px solid #e5e6eb;
+  border-top: 1px solid var(--hy-c-border, #e5e6eb);
 }
 .exam-group-title {
   margin: 0 0 2px;
   font-size: 13px;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .exam-row {
   display: flex;
@@ -849,21 +911,27 @@ onActivated(() => {
   gap: 16px;
   padding: 8px 0;
 }
+.exam-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .exam-row strong {
   margin-right: 8px;
 }
 .exam-score {
   margin-top: 4px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   font-size: 13px;
   font-weight: 600;
 }
 .exam-row + .exam-row {
-  border-top: 1px solid #f2f3f5;
+  border-top: 1px solid var(--hy-c-border, #f2f3f5);
 }
 .exam-meta {
   margin-top: 4px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 13px;
 }
 
@@ -879,7 +947,7 @@ onActivated(() => {
   margin-bottom: 14px;
 }
 .muted {
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 13px;
 }
 .stats-grid {
@@ -889,31 +957,31 @@ onActivated(() => {
   margin-bottom: 18px;
 }
 .stat-card {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 8px;
   padding: 18px 20px;
 }
 .stat-label {
   font-size: 13px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
 }
 .stat-value {
   font-size: 26px;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   margin-top: 6px;
 }
 .stat-value small {
   font-size: 13px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   margin-left: 4px;
   font-weight: 500;
 }
 .stat-sub {
   margin-top: 4px;
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
 }
 .weak-card {
   border-radius: 8px;
@@ -926,7 +994,7 @@ onActivated(() => {
 }
 .review-comment {
   font-size: 12px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   line-height: 1.4;
 }
 @media (max-width: 1080px) {

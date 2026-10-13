@@ -175,7 +175,7 @@ PREFLIGHT_CONNECT_TIMEOUT = 1.5
 PREFLIGHT_TIMEOUT = 4.0
 
 # 配置里的内网地址（如 192.168.2.103:5000）不在同一网段时会超时。
-# 公网 9050 是同一套 CSU-EYES 接口，预检失败时改走这里，避免质量评估整批失败。
+# 公网 9050 是同一套 CSU-EYES 接口，预检失败时改走这里，避免图像质控整批失败。
 PUBLIC_CSU_EYES_BASE = "http://113.219.243.122:9050"
 
 # 刚成功过的地址，短时间内 HEAD 偶发超时不再把整次判读打成 503。
@@ -509,7 +509,7 @@ async def assess_image_quality(
     model_id: Optional[int] = None,
 ) -> dict:
     """
-    眼底图像质量评估（单图三分类：好 / 可用 / 差）。
+    眼底图像质控（单图三分类：好 / 可用 / 差）。
 
     用于报告要求的「先质量后诊断」门控：任何练习或临床结论前，
     都应先确认影像可判读。
@@ -562,4 +562,79 @@ async def comprehensive(
     return await _post_form(_api("/inference/comprehensive"), files=files, data=data)
 
 
-__all__ = ["detect_ma", "grade_dr", "detect_glaucoma", "comprehensive"]
+async def segment_ocod(*, image_path: Path) -> dict:
+    """
+    视杯视盘分割（VMUnet OCOD，模型 id 6），杯盘比由同一次推理给出。
+    返回结构（2026-10 实测）：{
+      "record_id": 185, "model": {...}, "inference_time": 9.36,
+      "result": {"vertical_cdr": 0.52 | None, "horizontal_cdr": ...,
+                 "vertical_cdr_display": "0.52" | "N/A", "risk_level": "low|...|unknown",
+                 "risk_name": "...", "cup_area_px": 0, "disc_area_px": 0,
+                 "overlay_base64": "...", "mask_base64": "...", "image_size": {...}}
+    }
+    """
+    if not image_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"待分割影像不存在：{image_path.name}",
+        )
+    files = {"image": _file_tuple(image_path)}
+    return await _post_form(_api("/inference/ocod-segmentation"), files=files)
+
+
+async def segment_multi_lesion(*, image_path: Path) -> dict:
+    """
+    多病灶分割（VMUNet，EX/SE/HE）。需在 CSU-EYES 部署
+    /inference/multi-lesion-segmentation 后才可用；未部署时上游返回 404/405。
+    """
+    if not image_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"待分割影像不存在：{image_path.name}",
+        )
+    files = {"image": _file_tuple(image_path)}
+    return await _post_form(
+        _api("/inference/multi-lesion-segmentation"), files=files,
+        timeout=max(float(settings.CSU_EYES_TIMEOUT_SEC), 120.0),
+    )
+
+
+def _get_json_sync(path: str, timeout: float = 8.0) -> dict:
+    _selected_base.set("")
+    reason = preflight()
+    if reason:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=reason)
+    url = _api(path)
+    chosen = _selected_base.get()
+    if chosen:
+        url = _rewrite_base(url, chosen)
+    try:
+        resp = requests.get(url, headers=_DEFAULT_HEADERS, timeout=timeout)
+    except requests.RequestException as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"CSU-EYES 调用失败：{e}",
+        )
+    if resp.status_code >= 400:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"CSU-EYES {resp.status_code}：{_extract_upstream_message(resp)}",
+        )
+    try:
+        return resp.json()
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="CSU-EYES 返回非 JSON",
+        )
+
+
+async def list_models() -> List[dict]:
+    """CSU-EYES 已部署模型列表（/api/v1/models → {"models": [...]}）。"""
+    data = await run_in_threadpool(_get_json_sync, "/models")
+    models = data.get("models") if isinstance(data, dict) else data
+    return list(models or [])
+
+
+__all__ = [
+    "detect_ma", "grade_dr", "detect_glaucoma", "comprehensive",
+    "segment_ocod", "segment_multi_lesion", "list_models",
+]

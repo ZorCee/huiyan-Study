@@ -1,0 +1,141 @@
+[
+  {
+    "id": "R7-01-light",
+    "name": "首次进入跟随系统（系统为浅色）",
+    "pre": "清空本地存储，系统偏好为 light",
+    "steps": "打开登录页，读取 html 的 data-theme、dark 类和 --el-bg-color",
+    "expect": "data-theme=light，Element Plus 变量随之变化",
+    "status": "PASS",
+    "actual": "{\"theme\":\"light\",\"dark\":false,\"elBg\":\"#fff\",\"bodyBg\":\"rgb(244, 247, 252)\"}",
+    "shots": [
+      "R7-01-light.png"
+    ]
+  },
+  {
+    "id": "R7-01-dark",
+    "name": "首次进入跟随系统（系统为深色）",
+    "pre": "清空本地存储，系统偏好为 dark",
+    "steps": "打开登录页，读取 html 的 data-theme、dark 类和 --el-bg-color",
+    "expect": "data-theme=dark，Element Plus 变量随之变化",
+    "status": "PASS",
+    "actual": "{\"theme\":\"dark\",\"dark\":true,\"elBg\":\"#1a1d24\",\"bodyBg\":\"rgb(15, 17, 22)\"}",
+    "shots": [
+      "R7-01-dark.png"
+    ]
+  },
+  {
+    "id": "R7-02",
+    "name": "刷新后保持已选主题（存储值优先于系统）",
+    "pre": "系统为浅色，本地存储 huiyan_theme=dark",
+    "steps": "刷新登录页，读取主题",
+    "expect": "data-theme=dark",
+    "status": "PASS",
+    "actual": "{\"theme\":\"dark\",\"dark\":true,\"elBg\":\"#1a1d24\",\"bodyBg\":\"rgb(15, 17, 22)\"}",
+    "shots": [
+      "R7-02-stored-dark.png"
+    ]
+  },
+  {
+    "id": "R7-03",
+    "name": "主要页面深浅色截图（需人工核对局部未变色）",
+    "pre": "已登录测试账号",
+    "steps": "对冒烟页面分别以浅色、深色截图",
+    "expect": "无白底 / 深底冲突，人工核对",
+    "status": "MANUAL",
+    "actual": "已截图，待人工核对",
+    "shots": [
+      "R7-03-S-01-light.png",
+      "R7-03-S-01-dark.png",
+      "R7-03-S-02-light.png",
+      "R7-03-S-02-dark.png",
+      "R7-03-S-03-light.png",
+      "R7-03-S-03-dark.png",
+      "R7-03-S-04-light.png",
+      "R7-03-S-04-dark.png"
+    ]
+  },
+  {
+    "id": "S-01",
+    "name": "任务列表",
+    "pre": "已登录测试账号",
+    "steps": "打开 /training/home",
+    "expect": "页面正常渲染，无脚本错误，不跳回登录页",
+    "status": "PASS",
+    "actual": "url=http://127.0.0.1:5174/training/home 文本长度=1478 脚本错误=0",
+    "shots": [
+      "S-01.png"
+    ]
+  },
+  {
+    "id": "S-02",
+    "name": "审核工作台",
+    "pre": "已登录测试账号",
+    "steps": "打开 /training/review",
+    "expect": "页面正常渲染，无脚本错误，不跳回登录页",
+    "status": "PASS",
+    "actual": "url=http://127.0.0.1:5174/training/reading?tab=review 文本长度=498 脚本错误=0",
+    "shots": [
+      "S-02.png"
+    ]
+  },
+  {
+    "id": "S-03",
+    "name": "个人中心",
+    "pre": "已登录测试账号",
+    "steps": "打开 /training/profile",
+    "expect": "页面正常渲染，无脚本错误，不跳回登录页",
+    "status": "PASS",
+    "actual": "url=http://127.0.0.1:5174/training/profile 文本长度=241 脚本错误=0",
+    "shots": [
+      "S-03.png"
+    ]
+  },
+  {
+    "id": "S-04",
+    "name": "菜单导航（阅片页）",
+    "pre": "已登录测试账号",
+    "steps": "打开 /training/reading",
+    "expect": "页面正常渲染，无脚本错误，不跳回登录页",
+    "status": "PASS",
+    "actual": "url=http://127.0.0.1:5174/training/reading?caseId=172 文本长度=731 脚本错误=0",
+    "shots": [
+      "S-04.png"
+    ]
+  },
+  {
+    "id": "R8-1920x1080",
+    "name": "结果页布局 1920×1080",
+    "pre": "一份已公布成绩的考试结果页",
+    "steps": "视口 1920×1080 打开结果页，测图像区域和右侧面板的位置，检查横向溢出，点「全屏查看」再退出",
+    "expect": "图像宽度大于右侧面板，两者不重叠，无横向溢出",
+    "status": "PASS",
+    "actual": "{\"overflowX\":false,\"boxes\":[{\"x\":240,\"y\":48,\"w\":1142,\"h\":1032},{\"x\":1382,\"y\":48,\"w\":538,\"h\":1032}]} 全屏=true",
+    "shots": [
+      "R8-1920x1080.png"
+    ]
+  },
+  {
+    "id": "R8-1342x854",
+    "name": "结果页布局 1342×854",
+    "pre": "一份已公布成绩的考试结果页",
+    "steps": "视口 1342×854 打开结果页，测图像区域和右侧面板的位置，检查横向溢出，点「全屏查看」再退出",
+    "expect": "图像宽度大于右侧面板，两者不重叠，无横向溢出",
+    "status": "PASS",
+    "actual": "{\"overflowX\":false,\"boxes\":[{\"x\":240,\"y\":48,\"w\":742,\"h\":806},{\"x\":982,\"y\":48,\"w\":360,\"h\":806}]} 全屏=true",
+    "shots": [
+      "R8-1342x854.png"
+    ]
+  },
+  {
+    "id": "R8-768x1024",
+    "name": "结果页布局 768×1024",
+    "pre": "一份已公布成绩的考试结果页",
+    "steps": "视口 768×1024 打开结果页，测图像区域和右侧面板的位置，检查横向溢出，点「全屏查看」再退出",
+    "expect": "上下排列，图像在上，无横向溢出",
+    "status": "PASS",
+    "actual": "{\"overflowX\":false,\"boxes\":[{\"x\":240,\"y\":48,\"w\":528,\"h\":614},{\"x\":240,\"y\":662,\"w\":528,\"h\":122}]} 全屏=true",
+    "shots": [
+      "R8-768x1024.png"
+    ]
+  }
+]

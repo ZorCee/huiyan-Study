@@ -52,6 +52,7 @@ def list_cases(
     startTime: Optional[datetime] = Query(None, description="上传起始时间"),
     endTime: Optional[datetime] = Query(None, description="上传结束时间"),
     onlyIncomplete: bool = Query(False, description="只看影像不完整的病例"),
+    qualityLevel: Optional[str] = Query(None, description="图像质控：LOW/OK/UNKNOWN"),
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=200),
 ):
@@ -65,6 +66,7 @@ def list_cases(
         start_time=startTime,
         end_time=endTime,
         only_incomplete=onlyIncomplete,
+        quality_level=qualityLevel or None,  # type: ignore[arg-type]
         page=page,
         page_size=pageSize,
     )
@@ -174,7 +176,7 @@ _train_write_dep = Depends(require_roles(RoleEnum.TEACHER, RoleEnum.ADMIN))
 
 @router.post(
     "/{caseId}/join-training",
-    summary="把病例加入实训库（TEACHER/ADMIN，幂等）",
+    summary="开放给全体学员练习（TEACHER/ADMIN，幂等；病例须已发布）",
     response_model=None,
     dependencies=[_train_write_dep],
 )

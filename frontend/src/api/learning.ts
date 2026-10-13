@@ -134,11 +134,22 @@ export interface NoteListQuery {
 /* ========== 选项常量 ========== */
 
 export const RESOURCE_TYPE_OPTIONS: { label: string; value: ResourceType }[] = [
-  { label: '病例范本', value: 'CASE_TEMPLATE' },
+  { label: '病例解读（文档）', value: 'CASE_TEMPLATE' },
   { label: '实训课件', value: 'COURSEWARE' },
   { label: '知识点文档', value: 'KNOWLEDGE' },
   { label: '教学影像', value: 'IMAGE_DEMO' }
 ]
+
+/**
+ * 资料分类的展示文案。只改显示，库里的枚举值和筛选参数不变；
+ * 「病例范本」显示为「病例解读（文档）」，避免和学生端「教师演示病例」混淆；
+ * 没有分类的历史资料按「知识点文档」显示。
+ */
+export const resourceTypeLabel = (type?: ResourceType | '' | null, fallbackText?: string) => {
+  const hit = RESOURCE_TYPE_OPTIONS.find((o) => o.value === type)
+  if (hit) return hit.label
+  return fallbackText || '知识点文档'
+}
 
 export const RESOURCE_STATUS_OPTIONS: { label: string; value: ResourceStatus }[] = [
   { label: '草稿', value: 'DRAFT' },
@@ -225,6 +236,17 @@ export const listNotes = (q: NoteListQuery = {}) =>
 
 export const getNote = (id: number) =>
   http.get<LearningNote>(`/learning/notes/${id}`)
+
+/** 管理员审核视图：只读查看他人笔记，每次访问后端都会写操作日志 */
+export const adminListNotes = (q: NoteListQuery = {}) =>
+  http.get<PageResult<LearningNote>>('/learning/admin/notes', {
+    page: 1,
+    pageSize: 20,
+    ...cleanQuery(q)
+  })
+
+export const adminGetNote = (id: number) =>
+  http.get<LearningNote>(`/learning/admin/notes/${id}`)
 
 export const createNote = (params: NoteCreateParams) =>
   http.post<LearningNote>('/learning/notes', params, {

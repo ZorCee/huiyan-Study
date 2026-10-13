@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """学员首页的轮转任务，以及教师布置。"""
 
-from fastapi import APIRouter, Depends, Path
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Path, Query
 
 from app.common.response import success
 from app.core.dependencies import CurrentUser, DbSession, require_roles
@@ -23,6 +25,30 @@ router = APIRouter(
 def home(current_user: CurrentUser, db: DbSession):
     data = RotationService.home(db, current_user)
     return success(data=data.model_dump(by_alias=True))
+
+
+@router.get("/weak-detail", summary="常见漏诊和误诊下钻明细", response_model=None)
+def weak_detail(
+    current_user: CurrentUser,
+    db: DbSession,
+    studyYear: Optional[str] = Query(None),
+    rotationBatch: Optional[str] = Query(None),
+    mentorGroup: Optional[str] = Query(None),
+    userId: Optional[int] = Query(None),
+    label: str = Query(""),
+    errorType: Optional[str] = Query(None),
+):
+    data = RotationService.weak_detail(
+        db=db,
+        user=current_user,
+        study_year=studyYear,
+        rotation_batch=rotationBatch,
+        mentor_group=mentorGroup,
+        user_id=userId,
+        label=label,
+        error_type=errorType,
+    )
+    return success(data=[item.model_dump(by_alias=True) for item in data])
 
 
 @router.get("/options", summary="可布置的病例和知识点", response_model=None)

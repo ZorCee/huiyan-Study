@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Plus, Refresh, Search, Edit, Delete, View, Bell } from '@element-plus/icons-vue'
 import { CommonApi } from '@/api'
+import { requestInboxRefresh } from '@/composables/useInboxSignals'
 
 type Notice = CommonApi.Notice
 type NoticeType = CommonApi.NoticeType
@@ -244,6 +245,7 @@ const markRead = async (item: CommonApi.NotificationItem) => {
     await CommonApi.markNotificationRead([item.id])
     item.read = true
     inboxUnread.value = Math.max(0, inboxUnread.value - 1)
+    requestInboxRefresh()
   } catch {
     /* 静默：标记失败不影响阅读内容本身 */
   }
@@ -258,6 +260,7 @@ const markAllRead = async () => {
     await CommonApi.markAllNotificationsRead()
     inbox.value.forEach((n) => (n.read = true))
     inboxUnread.value = 0
+    requestInboxRefresh()
     ElMessage.success('已全部标为已读')
   } catch (e: any) {
     ElMessage.error(e?.message || '操作失败')
@@ -558,8 +561,8 @@ onMounted(() => {
 
 <style scoped>
 .card {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 12px;
   padding: 18px 20px;
   margin-bottom: 18px;
@@ -578,7 +581,7 @@ onMounted(() => {
   gap: 8px;
   font-size: 15px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .card-actions {
   display: flex;
@@ -586,7 +589,7 @@ onMounted(() => {
   gap: 8px;
 }
 .muted {
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 12px;
   font-weight: 400;
 }
@@ -596,7 +599,7 @@ onMounted(() => {
 .empty {
   padding: 36px 0;
   text-align: center;
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
   font-size: 14px;
 }
 .pagination {
@@ -615,10 +618,10 @@ onMounted(() => {
 }
 .notice-title-text {
   font-weight: 500;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 :deep(.unread-row) td {
-  background: #fff7e6 !important;
+  background: var(--hy-c-warning-soft, #fff7e6) !important;
 }
 /* 未读行整行可点，点一下即标记已读 —— 需要有可点的暗示 */
 :deep(.unread-row) {
@@ -626,7 +629,7 @@ onMounted(() => {
 }
 .bold {
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .unread-dot {
   color: #f56c6c;
@@ -635,7 +638,7 @@ onMounted(() => {
 .empty-hint {
   padding: 28px 0;
   text-align: center;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 13px;
 }
 .pager {
@@ -653,16 +656,16 @@ onMounted(() => {
   margin-bottom: 12px;
 }
 .nd-summary {
-  background: #f7faff;
+  background: var(--hy-c-primary-soft, #f7faff);
   border-left: 3px solid #1677ff;
   padding: 8px 12px;
   font-size: 13px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   margin: 0 0 12px;
 }
 .nd-body {
   font-size: 14px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   line-height: 1.8;
   white-space: pre-wrap;
 }
@@ -671,14 +674,14 @@ onMounted(() => {
 .placeholder {
   text-align: center;
   padding: 36px 16px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
 }
 .placeholder-icon {
   width: 48px;
   height: 48px;
   margin: 0 auto 12px;
   border-radius: 50%;
-  background: #eef4ff;
+  background: var(--hy-c-primary-soft, #eef4ff);
   color: #1677ff;
   display: flex;
   align-items: center;
@@ -688,12 +691,12 @@ onMounted(() => {
 .placeholder-title {
   font-size: 15px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   margin-bottom: 6px;
 }
 .placeholder-desc {
   font-size: 13px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   line-height: 1.7;
 }
 </style>

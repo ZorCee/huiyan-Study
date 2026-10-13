@@ -43,6 +43,7 @@ from app.db.models.training_record import (  # noqa: F401
     RecordStatusEnum,
 )
 from app.db.models.training_ai_result import TrainingAiResult  # noqa: F401
+from app.db.models.case_finding import CaseFinding  # noqa: F401
 from app.db.models.exam_record import (  # noqa: F401
     ExamRecord,
     ExamStatusEnum,
@@ -77,7 +78,7 @@ from app.db.models.case_image import (  # noqa: F401
     REQUIRED_ROLES_IDRID,
 )
 
-# ===== 影像质量评估结果（派生对象，先质量后诊断） =====
+# ===== 图像质控结果（派生对象，先质量后诊断） =====
 from app.db.models.case_image_quality import CaseImageQuality  # noqa: F401
 
 # ===== 机构申请 / 用户站内消息（PATIENT 端新增功能，纯追加） =====

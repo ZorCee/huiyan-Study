@@ -40,6 +40,26 @@ export interface StudentTaskSnap {
   status: string
   statusText: string
   score: number | null
+  caseId?: number | null
+  sessionId?: number | null
+  resourceId?: number | null
+}
+
+export interface WeakCaseItem {
+  sessionId: number
+  userId: number
+  studentName: string
+  username?: string
+  caseId: number
+  caseNo: string
+  caseTitle: string
+  imageUrl: string
+  goldDrGrade: string
+  errorType: 'missed' | 'false_positive' | string
+  label: string
+  note: string
+  scoreTotal: number
+  submittedAt?: string | null
 }
 
 export interface StudentProgress {
@@ -109,8 +129,22 @@ export interface OptionItem {
 
 export const getHome = () => http.get<HomePayload>('/rotation/home')
 
+export interface CaseOptionItem extends OptionItem {
+  category: string
+  difficulty: string
+  goldDrGrade: string
+}
+
+export interface PendingCaseItem extends CaseOptionItem {
+  isPublished: boolean
+  isTrainCase: boolean
+  missingStep: string
+}
+
 export const getOptions = () =>
-  http.get<{ cases: OptionItem[]; resources: OptionItem[] }>('/rotation/options')
+  http.get<{ cases: CaseOptionItem[]; pendingCases?: PendingCaseItem[]; resources: OptionItem[] }>(
+    '/rotation/options'
+  )
 
 export const updateRotation = (body: { title?: string; dueOn?: string; passScore?: number }) =>
   http.put<TeacherHome>('/rotation/current', body)
@@ -143,3 +177,12 @@ export const setStudentGroup = (
   userId: number,
   body: { studyYear?: string; rotationBatch?: string; mentorGroup?: string }
 ) => http.put<TeacherHome>(`/rotation/students/${userId}/group`, body)
+
+export const getWeakDetail = (params: {
+  studyYear?: string
+  rotationBatch?: string
+  mentorGroup?: string
+  userId?: number
+  label?: string
+  errorType?: string
+}) => http.get<WeakCaseItem[]>('/rotation/weak-detail', params)

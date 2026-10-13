@@ -439,7 +439,7 @@ const phoneMask = (p?: string | null) => {
       <div class="title-block">
         <div class="dot blue"></div>
         <div>
-          <div class="title">病例检索</div>
+          <div class="title">筛查记录检索</div>
           <div class="subtitle">已完成 AI 分析的病例 · 支持多条件筛选 / 报告确认 / 病患账号同步</div>
         </div>
       </div>
@@ -808,8 +808,8 @@ const phoneMask = (p?: string | null) => {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  background: #ffffff;
-  border: 1px solid #e6effe;
+  background: var(--hy-c-surface, #ffffff);
+  border: 1px solid var(--hy-c-border, #e6effe);
   border-radius: 12px;
   padding: 18px 22px;
 }
@@ -821,11 +821,11 @@ const phoneMask = (p?: string | null) => {
 .title {
   font-size: 18px;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .subtitle {
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   margin-top: 2px;
 }
 .dot {
@@ -843,8 +843,8 @@ const phoneMask = (p?: string | null) => {
 }
 
 .filter-card {
-  background: #ffffff;
-  border: 1px solid #e6effe;
+  background: var(--hy-c-surface, #ffffff);
+  border: 1px solid var(--hy-c-border, #e6effe);
   border-radius: 12px;
   padding: 16px 20px 4px;
 }
@@ -854,8 +854,8 @@ const phoneMask = (p?: string | null) => {
 }
 
 .list-card {
-  background: #ffffff;
-  border: 1px solid #e6effe;
+  background: var(--hy-c-surface, #ffffff);
+  border: 1px solid var(--hy-c-border, #e6effe);
   border-radius: 12px;
   padding: 14px 16px 16px;
   display: flex;
@@ -870,7 +870,7 @@ const phoneMask = (p?: string | null) => {
   gap: 10px;
   margin-bottom: 10px;
   padding: 8px 12px;
-  background: #fff7e6;
+  background: var(--hy-c-warning-soft, #fff7e6);
   border: 1px solid #ffe1a8;
   border-radius: 8px;
 }
@@ -883,10 +883,10 @@ const phoneMask = (p?: string | null) => {
 
 .phone-num {
   font-family: ui-monospace, SFMono-Regular, monospace;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
-.muted { color: #c9cdd4; }
-.muted-tag { color: #c9cdd4; }
+.muted { color: var(--hy-c-text-4, #c9cdd4); }
+.muted-tag { color: var(--hy-c-text-4, #c9cdd4); }
 .diag-cell {
   display: flex;
   flex-direction: column;
@@ -894,19 +894,19 @@ const phoneMask = (p?: string | null) => {
 }
 .diag-summary {
   font-size: 12px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   margin-top: 2px;
 }
 .report-diagnosis {
   margin-top: 12px;
   padding: 12px 14px;
-  background: #fafbfc;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-fill, #fafbfc);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 8px;
 }
 .diag-summary-text {
   margin: 4px 0 8px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   font-weight: 500;
 }
 .diag-heatmap {
@@ -917,10 +917,10 @@ const phoneMask = (p?: string | null) => {
   max-width: 100%;
   max-height: 320px;
   border-radius: 6px;
-  border: 1px solid #e5e6eb;
+  border: 1px solid var(--hy-c-border, #e5e6eb);
 }
 .diag-heatmap .cap {
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 12px;
   margin-top: 4px;
 }
@@ -932,7 +932,7 @@ const phoneMask = (p?: string | null) => {
 
 .empty {
   padding: 40px 0;
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
   font-size: 14px;
 }
 
@@ -944,9 +944,9 @@ const phoneMask = (p?: string | null) => {
 
 .bind-tip {
   font-size: 13px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   line-height: 1.7;
-  background: #f7faff;
+  background: var(--hy-c-primary-soft, #f7faff);
   border: 1px dashed #d0e0fb;
   border-radius: 8px;
   padding: 10px 12px;
@@ -958,17 +958,17 @@ const phoneMask = (p?: string | null) => {
   align-items: flex-start;
   justify-content: space-between;
   margin-bottom: 16px;
-  border-bottom: 1px solid #eaecef;
+  border-bottom: 1px solid var(--hy-c-border, #eaecef);
   padding-bottom: 16px;
 }
 .report-title {
   font-size: 18px;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .report-sub {
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   margin-top: 4px;
   font-weight: 400;
 }
@@ -976,17 +976,17 @@ const phoneMask = (p?: string | null) => {
   margin-bottom: 16px;
 }
 .report-conclusion {
-  background: #f7faff;
-  border: 1px solid #e0eafc;
+  background: var(--hy-c-primary-soft, #f7faff);
+  border: 1px solid var(--hy-c-border-strong, #e0eafc);
   border-radius: 8px;
   padding: 14px 16px;
   font-size: 13px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   line-height: 1.7;
 }
 .ck-title {
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   margin-bottom: 6px;
 }
 .suggestion {

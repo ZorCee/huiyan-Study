@@ -8,6 +8,7 @@
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from loguru import logger
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
@@ -65,6 +66,10 @@ def _patch_schema() -> None:
         task_cols = {c["name"] for c in insp.get_columns("biz_rotation_task")}
     except Exception:
         task_cols = set()
+    try:
+        paper_cols = {c["name"] for c in insp.get_columns("biz_exam_paper")}
+    except Exception:
+        paper_cols = set()
 
     is_sqlite = engine.url.drivername.startswith("sqlite")
 
@@ -124,11 +129,44 @@ def _patch_schema() -> None:
             "ALTER TABLE biz_rotation_task ADD COLUMN scope_value VARCHAR(32) NOT NULL DEFAULT ''",
         ))
 
+    # ---- 正式考试：重考策略扩展字段 ----
+    if paper_cols and "max_attempts" not in paper_cols:
+        patches.append((
+            "biz_exam_paper.max_attempts",
+            "ALTER TABLE biz_exam_paper ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 2",
+        ))
+    if paper_cols and "retake_policy" not in paper_cols:
+        patches.append((
+            "biz_exam_paper.retake_policy",
+            "ALTER TABLE biz_exam_paper ADD COLUMN retake_policy VARCHAR(16) NOT NULL DEFAULT 'BEST'",
+        ))
+    if practice_cols and "attempt_round" not in practice_cols:
+        patches.append((
+            "biz_practice_session.attempt_round",
+            "ALTER TABLE biz_practice_session ADD COLUMN attempt_round INTEGER NOT NULL DEFAULT 1",
+        ))
+
     if cols and "archive_status" not in cols:
         patches.append((
             "biz_training_case.archive_status",
             "ALTER TABLE biz_training_case ADD COLUMN archive_status "
             "VARCHAR(16) NOT NULL DEFAULT 'ACTIVE'",
+        ))
+    if cols and "quality_override_by" not in cols:
+        patches.append((
+            "biz_training_case.quality_override_by",
+            "ALTER TABLE biz_training_case ADD COLUMN quality_override_by INTEGER NULL",
+        ))
+    if cols and "quality_override_at" not in cols:
+        patches.append((
+            "biz_training_case.quality_override_at",
+            "ALTER TABLE biz_training_case ADD COLUMN quality_override_at DATETIME NULL",
+        ))
+    if cols and "quality_override_reason" not in cols:
+        patches.append((
+            "biz_training_case.quality_override_reason",
+            "ALTER TABLE biz_training_case ADD COLUMN quality_override_reason "
+            "VARCHAR(255) NOT NULL DEFAULT ''",
         ))
     if cols and "is_train_case" not in cols:
         # SQLite/MySQL 都支持 BOOLEAN 关键字（MySQL 内部为 TINYINT(1)）
@@ -260,6 +298,27 @@ def _patch_schema() -> None:
             "VARCHAR(32) NOT NULL DEFAULT ''",
         ))
 
+    try:
+        exam_cols = {c["name"] for c in insp.get_columns("biz_exam_paper")}
+    except Exception:
+        exam_cols = set()
+    if exam_cols and "audience_scope" not in exam_cols:
+        patches.append((
+            "biz_exam_paper.audience_scope",
+            "ALTER TABLE biz_exam_paper ADD COLUMN audience_scope "
+            "VARCHAR(16) NOT NULL DEFAULT 'ALL'",
+        ))
+    if exam_cols and "audience_values" not in exam_cols:
+        patches.append((
+            "biz_exam_paper.audience_values",
+            "ALTER TABLE biz_exam_paper ADD COLUMN audience_values JSON",
+        ))
+    if exam_cols and "audience_ids" not in exam_cols:
+        patches.append((
+            "biz_exam_paper.audience_ids",
+            "ALTER TABLE biz_exam_paper ADD COLUMN audience_ids JSON",
+        ))
+
     if reading_cols and "record_kind" not in reading_cols:
         patches.append((
             "biz_reading_annotation.record_kind",
@@ -277,6 +336,12 @@ def _patch_schema() -> None:
             "biz_practice_session.exam_paper_id",
             "ALTER TABLE biz_practice_session ADD COLUMN exam_paper_id "
             "INTEGER NOT NULL DEFAULT 0",
+        ))
+    if practice_cols and "hand_in_reason" not in practice_cols:
+        patches.append((
+            "biz_practice_session.hand_in_reason",
+            "ALTER TABLE biz_practice_session ADD COLUMN hand_in_reason "
+            "VARCHAR(16) NOT NULL DEFAULT ''",
         ))
 
     if patches:
@@ -337,6 +402,15 @@ def _init_database() -> None:
     """开发环境自动建表 + 默认数据"""
     Base.metadata.create_all(bind=engine)
     _patch_schema()
+
+    try:
+        from app.services.case_findings import backfill_dr_findings
+        with SessionLocal() as fdb:
+            added = backfill_dr_findings(fdb)
+            if added:
+                logger.info("[schema] 历史病例补 DR 结论 %d 条", added)
+    except Exception as exc:  # 读取侧有兜底，补数据失败不阻断启动
+        logger.warning("[schema] 补 DR 结论失败：%s", exc)
 
     db = SessionLocal()
     try:
@@ -603,8 +677,10 @@ def health():
     return {"code": 0, "msg": "ok", "data": {"status": "ok"}}
 
 
-# 业务路由统一挂到 /api/v1
+# 业务路由统一挂到 /api/v1，同时兼容前端默认 /api 前缀
 app.include_router(api_v1_router, prefix=settings.API_V1_PREFIX)
+if settings.API_V1_PREFIX != "/api":
+    app.include_router(api_v1_router, prefix="/api", include_in_schema=False)
 
 
 # 让 401 走我们的统一格式

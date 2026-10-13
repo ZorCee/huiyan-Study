@@ -59,6 +59,19 @@ const fetchResources = async () => {
   }
 }
 
+const resSort = ref<'latest' | 'views' | 'favorites'>('latest')
+const sortedResData = computed(() => {
+  if (resSort.value === 'views') return [...resData.value].sort((a, b) => b.viewCount - a.viewCount)
+  if (resSort.value === 'favorites')
+    return [...resData.value].sort((a, b) => b.favoriteCount - a.favoriteCount)
+  return resData.value
+})
+
+const goPracticeCase = (r: Resource) => {
+  if (!r.caseId) return
+  router.push({ path: '/reading', query: { caseId: String(r.caseId) } })
+}
+
 const onResPageChange = (p: number) => {
   resQuery.value.page = p
   fetchResources()
@@ -328,6 +341,11 @@ const tagListOf = (s: string) =>
                 :value="o.value"
               />
             </el-select>
+            <el-select v-model="resSort" style="width: 130px" aria-label="排序">
+              <el-option label="最新" value="latest" />
+              <el-option label="最多阅读" value="views" />
+              <el-option label="最多收藏" value="favorites" />
+            </el-select>
             <el-button @click="clearResources">清除</el-button>
             <el-button type="primary" @click="(resQuery.page = 1, fetchResources())">
               查询
@@ -345,7 +363,7 @@ const tagListOf = (s: string) =>
 
           <div v-loading="resLoading" class="card-grid">
             <ResourceCard
-              v-for="r in resData"
+              v-for="r in sortedResData"
               :key="r.id"
               :resource="r"
               :can-edit="canManage && (isAdmin || r.publisherId === userInfo.id)"
@@ -355,10 +373,14 @@ const tagListOf = (s: string) =>
               @edit="openEdit"
               @delete="removeResource"
               @note="openNoteFromResource"
+              @practice-case="goPracticeCase"
             />
           </div>
 
-          <el-empty v-if="!resLoading && resData.length === 0" description="暂无资料" />
+          <el-empty
+            v-if="!resLoading && resData.length === 0"
+            description="暂无资料，可以换个关键词或分类试试。"
+          />
 
           <el-pagination
             v-if="resTotal > 0"
@@ -413,6 +435,7 @@ const tagListOf = (s: string) =>
               @preview="openPreview"
               @toggle-fav="toggleFavorite"
               @note="openNoteFromResource"
+              @practice-case="goPracticeCase"
             />
           </div>
 
@@ -542,14 +565,14 @@ const tagListOf = (s: string) =>
 <style scoped>
 .learning-page {
   min-height: 100vh;
-  background: #f5f7fa;
+  background: var(--hy-c-fill, #f5f7fa);
   display: flex;
   flex-direction: column;
 }
 .page-header {
   height: 56px;
-  background: #fff;
-  border-bottom: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border-bottom: 1px solid var(--hy-c-border, #e5e6eb);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -559,10 +582,10 @@ const tagListOf = (s: string) =>
   margin-left: 12px;
   font-size: 16px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .user-mini {
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   font-size: 13px;
 }
 .page-body {
@@ -604,8 +627,8 @@ const tagListOf = (s: string) =>
   min-height: 200px;
 }
 .note-item {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 8px;
   padding: 14px 18px;
 }
@@ -619,21 +642,21 @@ const tagListOf = (s: string) =>
   margin: 0;
   font-size: 15px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .note-time {
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
   font-size: 12px;
 }
 .bind-line {
   font-size: 12px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   margin-bottom: 6px;
 }
 .note-content {
   margin: 6px 0;
   white-space: pre-wrap;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   line-height: 1.7;
   font-size: 13px;
 }

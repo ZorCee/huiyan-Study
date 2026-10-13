@@ -58,5 +58,9 @@ scratch/
 
 
 # 发布过程脚本（不入库）
-release-v4.5.bat
-release-v4.5.ps1
+release-*.bat
+release-*.ps1
+
+# 临时数据库备份文件（不入库）
+edu_eye_backup_*.sql
+*.sql.bak

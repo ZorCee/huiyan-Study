@@ -432,10 +432,10 @@ onMounted(fetchList)
   margin: 0 0 4px;
   font-size: 22px;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .head-left .muted {
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 13px;
 }
 .head-right {
@@ -444,24 +444,24 @@ onMounted(fetchList)
 }
 
 .summary-card {
-  background: #fff;
+  background: var(--hy-c-surface, #fff);
   border-radius: 12px;
   padding: 20px 24px;
-  border: 1px solid #e6effe;
+  border: 1px solid var(--hy-c-border, #e6effe);
   margin-bottom: 16px;
 }
 .hello {
   font-size: 16px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   margin-bottom: 6px;
 }
 .hint {
   font-size: 13px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   line-height: 1.7;
 }
 .muted {
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
 }
 
 .report-list {
@@ -471,8 +471,8 @@ onMounted(fetchList)
   min-height: 200px;
 }
 .report-item {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 10px;
   padding: 16px 20px;
   transition: box-shadow 0.2s;
@@ -500,7 +500,7 @@ onMounted(fetchList)
   color: #1677ff;
 }
 .time {
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 12px;
 }
 .body {
@@ -512,12 +512,12 @@ onMounted(fetchList)
   display: flex;
   gap: 6px;
   font-size: 13px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   margin-bottom: 6px;
 }
 .meta-line {
   font-size: 13px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   margin-bottom: 4px;
 }
 .grade-line {
@@ -525,13 +525,13 @@ onMounted(fetchList)
   font-size: 14px;
 }
 .grade-line .label {
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
 }
 .diag-line {
   margin-top: 6px;
   font-size: 13px;
-  color: #1d2129;
-  background: #f5f7fa;
+  color: var(--hy-c-text, #1d2129);
+  background: var(--hy-c-fill, #f5f7fa);
   padding: 8px 10px;
   border-radius: 6px;
   border-left: 3px solid #1677ff;
@@ -557,7 +557,7 @@ onMounted(fetchList)
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
   font-size: 11px;
   background: #1d2129;
 }
@@ -577,11 +577,11 @@ onMounted(fetchList)
   margin: 0 0 8px;
   font-size: 14px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .grade-card {
-  background: #fafbfc;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-fill, #fafbfc);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 8px;
   padding: 12px 16px;
   display: flex;
@@ -589,7 +589,7 @@ onMounted(fetchList)
   gap: 16px;
 }
 .grade-label {
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 13px;
 }
 .grade-val {
@@ -605,32 +605,32 @@ onMounted(fetchList)
 }
 .score {
   font-size: 13px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
 }
 .lesion-list {
   margin-top: 12px;
 }
 .sub-title {
   font-size: 13px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   margin-bottom: 6px;
 }
 .doctor-text {
   margin-top: 12px;
-  background: #eef4ff;
+  background: var(--hy-c-primary-soft, #eef4ff);
   border-radius: 6px;
   padding: 12px 14px;
 }
 .doctor-text p {
   margin: 0;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   line-height: 1.7;
 }
 .doctor-sign {
   margin-top: 8px;
   text-align: right;
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
 }
 .image-grid {
   display: grid;
@@ -647,7 +647,7 @@ onMounted(fetchList)
 .pdf-hint {
   margin-top: 6px;
   font-size: 11px;
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
   text-align: center;
   line-height: 1.5;
 }

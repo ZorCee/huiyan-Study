@@ -71,7 +71,7 @@ onMounted(() => {
             <el-avatar
               :size="28"
               :src="userInfo.avatar"
-              style="background:#eef4ff;color:#1677ff;font-size:12px;margin-right:8px"
+              style="background:var(--hy-c-primary-soft, #eef4ff);color:#1677ff;font-size:12px;margin-right:8px"
             >
               {{ displayName.charAt(0) }}
             </el-avatar>
@@ -207,7 +207,7 @@ onMounted(() => {
 
 .home-page {
   min-height: 100vh;
-  background: linear-gradient(180deg, #f5f9ff 0%, #ffffff 50%, #f8f9fb 100%);
+  background: linear-gradient(180deg, var(--hy-c-page, #f5f9ff) 0%, var(--hy-c-surface, #ffffff) 50%, #f8f9fb 100%);
   display: flex;
   flex-direction: column;
 }
@@ -218,9 +218,9 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--hy-c-glass, rgba(255, 255, 255, 0.7));
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid #e5e6eb;
+  border-bottom: 1px solid var(--hy-c-border, #e5e6eb);
 }
 .brand {
   display: flex;
@@ -230,7 +230,7 @@ onMounted(() => {
 .brand-name {
   font-size: 18px;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   letter-spacing: 1.2px;
 }
 .brand-name span {
@@ -248,7 +248,7 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   font-size: 13px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   cursor: pointer;
   user-select: none;
 }
@@ -271,13 +271,13 @@ onMounted(() => {
   margin: 0;
   font-size: 36px;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   letter-spacing: 2px;
 }
 .hero p {
   margin: 12px 0 0;
   font-size: 15px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   letter-spacing: 1px;
 }
 
@@ -308,8 +308,8 @@ onMounted(() => {
 }
 
 .scene-card.light {
-  background: #fff;
-  border: 1px solid #e6effe;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e6effe);
   box-shadow: 0 16px 50px rgba(22, 119, 255, 0.1);
 }
 .scene-card.light:hover {
@@ -333,7 +333,7 @@ onMounted(() => {
   right: 28px;
   font-size: 12px;
   letter-spacing: 2px;
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
   font-weight: 600;
 }
 .scene-card.dark .card-tag {
@@ -354,7 +354,7 @@ onMounted(() => {
   margin-bottom: 18px;
 }
 .icon-light {
-  background: #eef4ff;
+  background: var(--hy-c-primary-soft, #eef4ff);
 }
 .icon-dark {
   background: rgba(64, 145, 255, 0.12);
@@ -368,7 +368,7 @@ onMounted(() => {
   letter-spacing: 1.5px;
 }
 .scene-card.light h2 {
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .scene-card.dark h2 {
   color: #fff;
@@ -376,7 +376,7 @@ onMounted(() => {
 .desc {
   margin: 0 0 20px;
   font-size: 14px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   line-height: 1.7;
 }
 .feature-list {
@@ -389,7 +389,7 @@ onMounted(() => {
 }
 .feature-list li {
   font-size: 13px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   padding-left: 20px;
   position: relative;
 }
@@ -405,7 +405,7 @@ onMounted(() => {
   opacity: 0.6;
 }
 .scene-card.dark .feature-list li {
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
 }
 .scene-card.dark .feature-list li::before {
   background: #4091ff;
@@ -414,7 +414,7 @@ onMounted(() => {
 .card-footer {
   margin-top: 22px;
   padding-top: 20px;
-  border-top: 1px dashed #e5e6eb;
+  border-top: 1px dashed var(--hy-c-border, #e5e6eb);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -429,7 +429,7 @@ onMounted(() => {
   font-weight: 600;
 }
 .tag-pill.blue {
-  background: #eef4ff;
+  background: var(--hy-c-primary-soft, #eef4ff);
   color: #1677ff;
 }
 .tag-pill.purple {
@@ -449,7 +449,7 @@ onMounted(() => {
   padding: 24px 32px;
   text-align: center;
   font-size: 12px;
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -474,12 +474,12 @@ onMounted(() => {
   align-items: center;
   gap: 10px;
   padding: 10px 22px;
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 10px;
   cursor: pointer;
   font-size: 14px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 .entry-tile:hover {
@@ -492,7 +492,7 @@ onMounted(() => {
 }
 .entry-sub {
   font-size: 12px;
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
 }
 .entry-arrow {
   margin-left: 4px;

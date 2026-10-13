@@ -20,6 +20,18 @@ class _CamelModel(BaseModel):
     )
 
 
+class CaseFindingOut(_CamelModel):
+    """单个病种结论（含来源与 AI 建议值）"""
+    disease: str
+    disease_label: str = ""
+    value: str = ""
+    value_label: str = ""
+    source: str = "AI"
+    ai_value: Optional[str] = None
+    ai_value_label: str = ""
+    confirmed: bool = False
+
+
 CategoryLiteral = Literal["DR", "AMD", "GLAUCOMA", "HYPERTENSION", "NORMAL", "OTHER"]
 ArchiveStatusLiteral = Literal["ACTIVE", "ARCHIVED"]
 CreatorRoleLiteral = Literal["STUDENT", "TEACHER", "ADMIN"]
@@ -36,6 +48,9 @@ class CaseBrowseQuery(_CamelModel):
     start_time: Optional[datetime] = Field(None, description="上传起始时间")
     end_time: Optional[datetime] = Field(None, description="上传结束时间")
     only_incomplete: bool = Field(False, description="只看影像不完整的病例")
+    quality_level: Optional[Literal["LOW", "OK", "UNKNOWN"]] = Field(
+        None, description="图像质控：LOW 差/不可判读，OK 合格，UNKNOWN 未质控"
+    )
     page: int = Field(1, ge=1)
     page_size: int = Field(20, ge=1, le=200)
 
@@ -109,6 +124,9 @@ class CaseBrowseDetail(CaseBrowseItem):
     gold_lesions: list = Field(default_factory=list)
     pass_score: int = 60
     visits: List[CaseVisitBrief] = Field(default_factory=list)
+    findings: List[CaseFindingOut] = Field(default_factory=list, description="多病种结论（仅教师/管理员可见）")
+    finding_conflicts: List[str] = Field(default_factory=list, description="来源冲突提示（仅教师/管理员可见）")
+    quality_summary: Optional[dict] = Field(None, description="图像质控汇总与放行留痕（仅教师/管理员可见）")
 
 
 class SubjectLinkUpdate(_CamelModel):
@@ -120,6 +138,12 @@ class SubjectLinkUpdate(_CamelModel):
 class CaseArchiveParams(_CamelModel):
     archive_status: ArchiveStatusLiteral = Field(..., description="目标状态")
     reason: Optional[str] = Field(None, description="归档原因（可选）")
+
+
+class FindingIn(_CamelModel):
+    """单个病种结论；value 为空表示删除该病种结论"""
+    disease: str = Field(..., max_length=16)
+    value: str = Field("", max_length=8)
 
 
 class GoldStandardUpdate(_CamelModel):
@@ -134,6 +158,9 @@ class GoldStandardUpdate(_CamelModel):
     )
     pass_score: Optional[int] = Field(None, ge=0, le=100, description="及格分（百分制）")
     gold_lesions: Optional[list] = Field(None, description="金标准病变列表")
+    findings: Optional[List[FindingIn]] = Field(
+        None, description="多病种结论；教师在弹窗里保存的值来源记为人工",
+    )
     publish: bool = Field(
         False,
         description="True=发布并加入实训（is_published + is_train_case）；False=仅保存草稿",

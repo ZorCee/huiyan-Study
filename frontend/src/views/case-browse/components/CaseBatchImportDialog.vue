@@ -14,7 +14,10 @@ const images = ref<File[]>([])
 const report = ref<CaseBrowseApi.CaseImportReport | null>(null)
 
 const naming =
-  '影像文件名必须是「登记号_右眼」「登记号_左眼」或「登记号_双眼」，也可以用 _OD / _OS / _OU。眼别列要和文件名一致。左右眼都有时，眼别填「左右眼」，并各传一张。登记表不要出现姓名、手机号、身份证号。'
+  '影像文件名必须是「登记号_右眼」「登记号_左眼」或「登记号_双眼」，也可以用 _OD / _OS / _OU 或 _right / _left（_R / _L）。眼别列要和文件名一致。左右眼都有时，眼别填「左右眼」，并各传一张。登记表只有登记号、眼别必填，其余列可留空；Excel 导出的 CSV（GBK 或 UTF-8）都能读。登记表不要出现姓名、手机号、身份证号。'
+
+const delimiterText: Record<string, string> = { ',': '逗号', '\t': '制表符', ';': '分号' }
+const encodingText = (value: string) => (value === 'gb18030' ? 'GBK / GB18030' : 'UTF-8')
 
 const open = () => {
   sheet.value = null
@@ -101,8 +104,15 @@ defineExpose({ open })
     </p>
     <el-button type="primary" :loading="checking" @click="onCheck">入库前检查</el-button>
 
+    <p v-if="report" class="summary">
+      登记表编码 {{ encodingText(report.encoding) }}，分隔符{{ delimiterText[report.delimiter] || report.delimiter }}。
+      <template v-if="report.emptyColumns?.length">
+        整列为空、已跳过：{{ report.emptyColumns.join('、') }}。
+      </template>
+    </p>
     <el-table v-if="report" :data="report.rows" size="small" class="result">
-      <el-table-column prop="registerNo" label="登记号" width="120" />
+      <el-table-column prop="line" label="行号" width="64" />
+      <el-table-column prop="registerNo" label="登记号" width="110" />
       <el-table-column prop="title" label="标题" min-width="140" />
       <el-table-column label="结果" width="90">
         <template #default="{ row }">
@@ -113,7 +123,10 @@ defineExpose({ open })
       </el-table-column>
       <el-table-column label="检查说明" min-width="220">
         <template #default="{ row }">
-          {{ row.ok ? '左右眼、质量、重复和患者信息均通过' : row.issues.join('；') }}
+          <span v-if="row.ok">左右眼、图像质量、重复和患者信息均通过</span>
+          <ul v-else class="issues">
+            <li v-for="item in row.issues" :key="item">{{ item }}</li>
+          </ul>
         </template>
       </el-table-column>
     </el-table>
@@ -139,7 +152,7 @@ defineExpose({ open })
 .naming {
   margin: 0 0 12px;
   line-height: 1.6;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .actions,
 .pickers {
@@ -149,10 +162,15 @@ defineExpose({ open })
 }
 .picked,
 .summary {
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   font-size: 13px;
 }
 .result {
   margin-top: 12px;
+}
+.issues {
+  margin: 0;
+  padding-left: 16px;
+  line-height: 1.6;
 }
 </style>

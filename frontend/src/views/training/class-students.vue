@@ -138,7 +138,7 @@ onMounted(load)
   <div v-loading="loading" class="class-page">
     <header class="page-head">
       <div>
-        <h2>班级学生</h2>
+        <h2>班级与学员维护</h2>
         <p>
           把学员分到年级、轮转批次和带教组。学员情况里的按组查看，以及推荐病例的范围，都用这里的分组。
           账号由管理员开通，这里不新建账号。
@@ -208,7 +208,7 @@ onMounted(load)
   max-width: 1100px;
   margin: 0 auto;
   padding: 28px 32px 48px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .page-head {
   display: flex;
@@ -223,7 +223,7 @@ onMounted(load)
 }
 .page-head p {
   margin: 0;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   font-size: 14px;
   line-height: 1.6;
 }
@@ -232,7 +232,7 @@ onMounted(load)
   align-items: center;
   gap: 16px;
   margin: 20px 0 12px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   font-size: 14px;
 }
 .batch-bar {
@@ -242,17 +242,17 @@ onMounted(load)
   gap: 10px;
   margin-bottom: 12px;
   padding: 12px 14px;
-  background: #ffffff;
-  border: 1px solid #dfe3ea;
+  background: var(--hy-c-surface, #ffffff);
+  border: 1px solid var(--hy-c-border-strong, #dfe3ea);
   border-radius: 10px;
 }
 .batch-count {
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   font-weight: 600;
   margin-right: 4px;
 }
 .muted {
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   font-size: 13px;
 }
 </style>

@@ -78,7 +78,7 @@ const copy = async (text: string | undefined, name: string) => {
   flex-shrink: 0;
   font-size: 11px;
   line-height: 1.4;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
 }
 .id-v {
   font-family: Consolas, Monaco, monospace;

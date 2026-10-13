@@ -201,6 +201,28 @@ const close = () => emit('update:visible', false)
         </div>
       </div>
 
+      <div v-if="(result.diseases?.length ?? 0) > 1" class="disease-table" aria-label="各病种 AI 结论">
+        <div class="disease-row disease-head">
+          <span>病种</span><span>AI 结论</span><span>金标准</span><span>对比</span>
+        </div>
+        <div v-for="d in result.diseases" :key="d.disease" class="disease-row">
+          <span class="disease-name">{{ d.diseaseLabel }}</span>
+          <span :class="{ 'disease-muted': d.aiValue === null }">{{ d.aiLabel }}</span>
+          <span>{{ d.goldLabel }}</span>
+          <span>
+            <el-tag
+              v-if="d.agree !== null"
+              size="small"
+              effect="plain"
+              :type="d.agree ? 'success' : 'warning'"
+            >
+              {{ d.agree ? '一致' : '不一致' }}
+            </el-tag>
+            <span v-else class="disease-muted">—</span>
+          </span>
+        </div>
+      </div>
+
       <el-alert
         v-if="eyeCards.length === 1"
         type="info"
@@ -291,10 +313,41 @@ const close = () => emit('update:visible', false)
 </template>
 
 <style scoped>
+.disease-table {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 13px;
+}
+.disease-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr 0.8fr;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  color: var(--el-text-color-regular);
+}
+.disease-head {
+  border-top: none;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+.disease-name {
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+.disease-muted {
+  color: var(--el-text-color-placeholder);
+}
 .ai-loading-sub {
   margin-top: 8px;
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
 }
 
 .ai-loading {

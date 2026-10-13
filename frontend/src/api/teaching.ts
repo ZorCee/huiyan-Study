@@ -118,6 +118,20 @@ export const getShareTargets = () =>
 export const revokeShare = (id: number) =>
   http.post<TeachingShare>(`/teaching/share/${id}/revoke`)
 
+export interface ShareUpdateParams {
+  shareScope: NonNullable<ShareCreateParams['shareScope']>
+  scopeValue?: string
+  audienceIds?: number[]
+  /** 0 表示长期有效，直到手动收回 */
+  expireHours: number
+}
+
+export const updateShare = (id: number, params: ShareUpdateParams) =>
+  http.post<TeachingShare>(`/teaching/share/${id}/update`, params)
+
+export const shelveOwnShare = (id: number) =>
+  http.post<TeachingShare>(`/teaching/share/${id}/shelve`)
+
 export const revealShare = (id: number) =>
   http.post<TeachingShare>(`/teaching/share/${id}/reveal`)
 

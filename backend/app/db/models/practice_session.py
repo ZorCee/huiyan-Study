@@ -64,9 +64,24 @@ class PracticeSession(Base, TimestampMixin):
     exam_total: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, comment="本场题数",
     )
+    # 本次作答所属轮次（首考为 1，重考为 2、3...）
+    attempt_round: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, index=True,
+        comment="作答轮次序号：1为首考，2为首次重考",
+    )
     exam_paper_id: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, index=True,
         comment="老师发布的正式考试 id，0 表示学员自行开考的旧卷",
+    )
+    # 正式考试的交卷原因。学员只点进去看了一眼、到时被系统补交的白卷，
+    # 要和学员自己交的卷分开显示，否则会被当成「已经考完」。
+    #   MANUAL  学员自己提交 / 交卷
+    #   TIMEOUT 时间到，系统按已保存内容补交
+    #   COLLECT 老师统一收卷时补交
+    #   ''      平时练习，或本字段上线前的旧记录
+    hand_in_reason: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="",
+        comment="正式考试交卷原因：MANUAL/TIMEOUT/COLLECT，空为旧记录或平时练习",
     )
     hint_step: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, comment="平时练习已打开的提示则数",

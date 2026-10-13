@@ -11,7 +11,7 @@ from app.db.models.user_setting import FontSizeEnum, ThemeEnum
 
 class UserSettingOut(BaseModel):
     """用户配置 — 出参"""
-    theme: ThemeEnum = ThemeEnum.LIGHT
+    theme: ThemeEnum = ThemeEnum.AUTO
     font_size: FontSizeEnum = FontSizeEnum.NORMAL
     language: str = "zh-CN"
 

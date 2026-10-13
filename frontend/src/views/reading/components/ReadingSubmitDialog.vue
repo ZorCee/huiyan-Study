@@ -96,7 +96,7 @@ const close = () => {
   gap: 12px;
 }
 .muted {
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 12px;
   line-height: 1.6;
 }

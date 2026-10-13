@@ -33,7 +33,7 @@ class DiagnosisType(str, Enum):
 # ============ MA 结果 ============
 
 class MaDiagnosisResult(_CamelModel):
-    ma_count: int = 0
+    ma_count: Optional[int] = Field(None, description="None = 上游未返回 MA 字段（不是 0 个）")
     overlay_url: str = ""
     heatmap_url: str = ""
     inference_time: float = 0.0
@@ -60,7 +60,7 @@ class DrDiagnosisResult(_CamelModel):
 
 class ComprehensiveDiagnosisResult(_CamelModel):
     overall_grade: int = 0
-    ma_count: int = 0
+    ma_count: Optional[int] = Field(None, description="None = 上游未返回 MA 字段（不是 0 个）")
     ma_overlay_url: str = ""
     dr_heatmap_url: str = ""
     summary: str = ""
@@ -76,7 +76,11 @@ class DiagnosisOut(_CamelModel):
     task_id: str = Field(..., description="对应 ScreeningCase.case_no")
     case_id: int
     case_sn: str = ""
-    patient_name: str = ""
+    patient_name: str = Field("", description="受检者显示名（自动编号或已脱敏姓名）")
+    subject_source: Literal["auto", "input"] = Field(
+        "auto", description="auto=上传时自动生成的编号；input=上传时录入"
+    )
+    submitter_name: str = Field("", description="录入人（上传医生）")
     diagnosis_type: DiagnosisType
     risk_level: RiskLiteral = "LOW"
     primary_image_url: str = ""

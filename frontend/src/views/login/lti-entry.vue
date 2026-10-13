@@ -65,15 +65,15 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   height: 100vh;
-  background: #f5f7fa;
+  background: var(--hy-c-fill, #f5f7fa);
 }
 .card {
-  background: #fff;
+  background: var(--hy-c-surface, #fff);
   padding: 32px 44px;
   border-radius: 8px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
   text-align: center;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
 }
 .card.bad {
   color: #f56c6c;
@@ -82,7 +82,7 @@ onMounted(async () => {
   width: 28px;
   height: 28px;
   margin: 0 auto 14px;
-  border: 3px solid #e5e6eb;
+  border: 3px solid var(--hy-c-border, #e5e6eb);
   border-top-color: #1677ff;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;

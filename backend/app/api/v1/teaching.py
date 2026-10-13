@@ -2,6 +2,8 @@
 教学实训分享路由
 - POST /teaching/share                  (TEACHER/ADMIN) 创建临时分享
 - POST /teaching/share/{id}/revoke      (TEACHER/ADMIN) 收回分享
+- POST /teaching/share/{id}/update      (TEACHER/ADMIN) 修改临时分享范围与有效期
+- POST /teaching/share/{id}/shelve      (TEACHER/ADMIN) 老师下架自己的入库教学
 - POST /teaching/submit                 (TEACHER/ADMIN) 提交入库申请
 - GET  /teaching/my-shares              (TEACHER/ADMIN) 我的教学分享列表
 - GET  /teaching/student/cases          (STUDENT)       学员可见病例
@@ -21,6 +23,7 @@ from app.db.models.user import RoleEnum
 from app.schemas.teaching import (
     TeachingReviewParams,
     TeachingShareCreate,
+    TeachingShareUpdate,
     TeachingSubmitCreate,
 )
 from app.services.teaching_service import TeachingService
@@ -55,6 +58,18 @@ def reveal_share(share_id: int = Path(...), db: DbSession = None, user: CurrentU
 def revoke_share(share_id: int = Path(...), db: DbSession = None, user: CurrentUser = None, request: Request = None):
     r = TeachingService.revoke_share(db, user=user, share_id=share_id, ip=_ip(request))
     return success(data=r.model_dump(by_alias=True))
+
+
+@router.post("/share/{share_id}/update", dependencies=[_teacher_dep])
+def update_share(params: TeachingShareUpdate, share_id: int = Path(...), db: DbSession = None, user: CurrentUser = None, request: Request = None):
+    r = TeachingService.update_share(db, user=user, share_id=share_id, params=params, ip=_ip(request))
+    return success(data=r.model_dump(by_alias=True), msg="已更新，学员端按新范围显示")
+
+
+@router.post("/share/{share_id}/shelve", dependencies=[_teacher_dep])
+def teacher_shelve(share_id: int = Path(...), db: DbSession = None, user: CurrentUser = None, request: Request = None):
+    r = TeachingService.shelve(db, user=user, share_id=share_id, ip=_ip(request), owner_only=True)
+    return success(data=r.model_dump(by_alias=True), msg="已下架，学员端不再显示")
 
 
 @router.post("/submit", dependencies=[_teacher_dep])

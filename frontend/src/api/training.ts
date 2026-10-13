@@ -1,4 +1,5 @@
 import http, { type PageResult } from '@/utils/request'
+import type { CaseFinding } from '@/utils/case-findings'
 
 /* ========== 公共枚举 ========== */
 
@@ -155,6 +156,18 @@ export interface AiEyeResult {
   heatmapUrl: string
 }
 
+export interface AiDiseaseResult {
+  disease: string
+  diseaseLabel: string
+  /** null 表示该病种 AI 未判读或未返回 */
+  aiValue: string | null
+  aiLabel: string
+  goldValue: string
+  goldLabel: string
+  source: string
+  agree: boolean | null
+}
+
 export interface AiDiagnosisResult {
   caseId: string
   /** 诊断病种：DR / GLAUCOMA / MA ... */
@@ -183,6 +196,8 @@ export interface AiDiagnosisResult {
   goldLabel?: string
   /** AI 是否与金标准一致 */
   agreeWithGold: boolean | null
+  /** 按病种逐条的 AI 结论与金标准对比（病例实际涉及的病种） */
+  diseases?: AiDiseaseResult[]
   modelName: string
   inferDurationMs: number
   /** 是否命中缓存 */
@@ -197,6 +212,61 @@ export interface AiCaseDraft {
   title: string
   isPublished: boolean
   ai: AiDiagnosisResult
+  /** AI 是否返回了 DR 分级；false 时 overallGrade 无意义 */
+  aiReturned?: boolean
+  findings?: CaseFinding[]
+  conflicts?: string[]
+  quality?: CaseQualityItem[]
+  qualityWarnings?: string[]
+  laterality?: string[]
+  qualityOverride?: { by: number; at: string; reason: string } | null
+}
+
+export type ImageQualityLevel = 'good' | 'usable' | 'poor' | 'ungradable' | 'unknown'
+
+/** 建案时单眼的质控结果 */
+export interface CaseQualityItem {
+  eye: string
+  eyeText: string
+  quality: ImageQualityLevel
+  qualityText: string
+  confidence: number
+  modelName: string
+  reason: string
+  error: string
+  /** PRECHECK 本地预检 / MODEL 质控模型 / NONE 未评估 */
+  source: 'PRECHECK' | 'MODEL' | 'NONE'
+}
+
+/** 建案被质控拦下时（HTTP 409）后端返回的内容 */
+export interface CaseQualityGate {
+  kind: 'QUALITY_POOR' | 'QUALITY_UNGRADABLE' | 'LATERALITY_CONFLICT'
+  message: string
+  reasons: string[]
+  quality: CaseQualityItem[]
+  laterality: string[]
+}
+
+/** 从 createAiCase 的报错里取出质控拦截信息；不是质控拦截返回 null */
+export const readQualityGate = (err: any): CaseQualityGate | null => {
+  const data = err?.response?.status === 409 ? err.response.data?.data : null
+  return data && typeof data.kind === 'string' ? (data as CaseQualityGate) : null
+}
+
+export interface AiCaseOptions {
+  title?: string
+  difficulty?: 'EASY' | 'MEDIUM' | 'HARD'
+  /** 人工预判 DR 0~4；空=用 AI */
+  manualDr?: string
+  /** 人工预判青光眼 0/1/S；空=不填 */
+  manualGlaucoma?: string
+  screenGlaucoma?: boolean
+  /** 已知晓图像质量较差，仍继续 */
+  confirmLowQuality?: boolean
+  /** 已确认眼别无误 */
+  confirmLaterality?: boolean
+  /** 不可判读图像的人工放行理由 */
+  overrideReason?: string
 }
 
 export interface TrainingStats {
@@ -261,17 +331,24 @@ export const runAiDiagnosis = (caseId: string | number, force = false) =>
 export const createAiCase = (
   leftEye: File,
   rightEye: File,
-  opts: { title?: string; difficulty?: 'EASY' | 'MEDIUM' | 'HARD' } = {}
+  opts: AiCaseOptions = {}
 ) => {
   const fd = new FormData()
   fd.append('left_eye', leftEye)
   fd.append('right_eye', rightEye)
   if (opts.title) fd.append('title', opts.title)
   if (opts.difficulty) fd.append('difficulty', opts.difficulty)
+  if (opts.manualDr) fd.append('manual_dr', opts.manualDr)
+  if (opts.manualGlaucoma) fd.append('manual_glaucoma', opts.manualGlaucoma)
+  if (opts.screenGlaucoma) fd.append('screen_glaucoma', 'true')
+  if (opts.confirmLowQuality) fd.append('confirm_low_quality', 'true')
+  if (opts.confirmLaterality) fd.append('confirm_laterality', 'true')
+  if (opts.overrideReason?.trim()) fd.append('override_reason', opts.overrideReason.trim())
+  // 不自动弹错：质控拦截（409）由页面弹窗处理，其余错误页面自行提示
   return http.upload<AiCaseDraft>(
     '/training/ai-cases',
     fd,
-    { showError: true },
+    { showError: false },
     { timeout: 180_000 }
   )
 }

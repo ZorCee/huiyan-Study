@@ -234,7 +234,7 @@ const goLogin = () => router.push('/login')
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background: linear-gradient(135deg, #eef4ff 0%, #f5f9ff 60%, #ffffff 100%);
+  background: linear-gradient(135deg, var(--hy-c-primary-soft, #eef4ff) 0%, var(--hy-c-page, #f5f9ff) 60%, var(--hy-c-surface, #ffffff) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -251,9 +251,9 @@ const goLogin = () => router.push('/login')
   filter: blur(80px);
   opacity: 0.4;
 }
-.c1 { width: 480px; height: 480px; background: #c7dbff; top: -120px; left: -100px; }
-.c2 { width: 380px; height: 380px; background: #d6f0ff; bottom: -80px; right: -60px; }
-.c3 { width: 240px; height: 240px; background: #e6f7ec; top: 60%; left: 40%; }
+.c1 { width: 480px; height: 480px; background: var(--hy-c-primary-soft, #c7dbff); top: -120px; left: -100px; }
+.c2 { width: 380px; height: 380px; background: var(--hy-c-primary-soft, #d6f0ff); bottom: -80px; right: -60px; }
+.c3 { width: 240px; height: 240px; background: var(--hy-c-success-soft, #e6f7ec); top: 60%; left: 40%; }
 
 .register-container {
   position: relative;
@@ -262,7 +262,7 @@ const goLogin = () => router.push('/login')
   max-width: 92vw;
 }
 .register-card {
-  background: #fff;
+  background: var(--hy-c-surface, #fff);
   border-radius: 16px;
   padding: 36px 40px 32px;
   box-shadow: 0 20px 60px rgba(22, 119, 255, 0.12);
@@ -274,13 +274,13 @@ const goLogin = () => router.push('/login')
   margin: 0;
   font-size: 24px;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   letter-spacing: 1px;
 }
 .card-header p {
   margin: 8px 0 0;
   font-size: 13px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
 }
 .code-row {
   display: flex;
@@ -302,7 +302,7 @@ const goLogin = () => router.push('/login')
 .extra {
   margin-top: 16px;
   text-align: center;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   font-size: 13px;
 }
 .link {
@@ -313,10 +313,10 @@ const goLogin = () => router.push('/login')
 .tip {
   margin-top: 18px;
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   text-align: center;
   line-height: 1.7;
   padding-top: 12px;
-  border-top: 1px dashed #e5e6eb;
+  border-top: 1px dashed var(--hy-c-border, #e5e6eb);
 }
 </style>

@@ -34,6 +34,7 @@ from app.schemas.teaching import (
     TeachingShareCreate,
     TeachingShareOut,
     TeachingSharePage,
+    TeachingShareUpdate,
     TeachingSubmitCreate,
 )
 from app.services.op_log_service import OpLogService
@@ -315,7 +316,9 @@ def _student_rows(db: Session):
     )
 
 
-def _normalize_share_scope(db: Session, params: TeachingShareCreate) -> tuple[str, str, list]:
+def _normalize_share_scope(
+    db: Session, params: "TeachingShareCreate | TeachingShareUpdate"
+) -> tuple[str, str, list]:
     scope = params.share_scope or "ALL"
     value = (params.scope_value or "").strip()[:32]
     if scope == "ALL":
@@ -347,6 +350,25 @@ def _normalize_share_scope(db: Session, params: TeachingShareCreate) -> tuple[st
             f"这个{labels[scope]}里还没有学员，请先在「班级学生」里填写",
         )
     return scope, value, []
+
+
+def _expiry_from(now: datetime, hours: int) -> Optional[datetime]:
+    return None if hours <= 0 else now + timedelta(hours=hours)
+
+
+def _temporary_active(share: TeachingShare, now: datetime) -> bool:
+    return (
+        share.status == ShareStatusEnum.SHARING.value
+        and (share.expired_at is None or share.expired_at > now)
+    )
+
+
+def _require_owner(share: Optional[TeachingShare], user: User) -> TeachingShare:
+    if not share:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "分享记录不存在")
+    if share.teacher_id != user.id and user.role.code != RoleEnum.ADMIN.value:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "无权操作")
+    return share
 
 
 def _share_reaches(share: TeachingShare, user: User) -> bool:
@@ -412,7 +434,7 @@ class TeachingService:
             scope_value=scope_value,
             audience_ids=audience_ids or None,
             expire_hours=params.expire_hours,
-            expired_at=now + timedelta(hours=params.expire_hours),
+            expired_at=_expiry_from(now, params.expire_hours),
             answers_revealed=not params.hide_answers,
             status=ShareStatusEnum.SHARING.value,
             teacher_id=user.id,
@@ -444,6 +466,32 @@ class TeachingService:
         OpLogService.record(
             db, user=user, module="teaching", action="share_revoke",
             detail=f"收回分享#{share_id}", ip=ip, commit=False,
+        )
+        db.commit()
+        db.refresh(share)
+        return _to_out(share, db)
+
+    @staticmethod
+    def update_share(
+        db: Session, *, user: User, share_id: int, params: TeachingShareUpdate, ip: str = ""
+    ) -> TeachingShareOut:
+        share = _require_owner(
+            db.query(TeachingShare).filter(TeachingShare.id == share_id).first(), user
+        )
+        if share.share_type != ShareTypeEnum.TEMPORARY.value:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "入库教学对全体学员开放，不能单独改范围")
+        if share.status != ShareStatusEnum.SHARING.value:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "已收回的分享不能再修改，请重新分享")
+        scope, scope_value, audience_ids = _normalize_share_scope(db, params)
+        share.share_scope = scope
+        share.scope_value = scope_value
+        share.audience_ids = audience_ids or None
+        share.expire_hours = params.expire_hours
+        share.expired_at = _expiry_from(datetime.now(), params.expire_hours)
+        OpLogService.record(
+            db, user=user, module="teaching", action="share_update",
+            detail=f"修改分享#{share_id}：对象{scope}{scope_value}，有效期{params.expire_hours or '长期'}h",
+            ip=ip, commit=False,
         )
         db.commit()
         db.refresh(share)
@@ -581,10 +629,14 @@ class TeachingService:
         return _to_out(share, db)
 
     @staticmethod
-    def shelve(db: Session, *, user: User, share_id: int, ip: str = "") -> TeachingShareOut:
+    def shelve(
+        db: Session, *, user: User, share_id: int, ip: str = "", owner_only: bool = False,
+    ) -> TeachingShareOut:
         share = db.query(TeachingShare).filter(TeachingShare.id == share_id).first()
         if not share:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "记录不存在")
+        if owner_only:
+            _require_owner(share, user)
         if share.status != ShareStatusEnum.APPROVED.value:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅已通过的记录可下架")
         share.status = ShareStatusEnum.SHELVED.value
@@ -679,7 +731,7 @@ class TeachingService:
         temporary = and_(
             TeachingShare.share_type == ShareTypeEnum.TEMPORARY.value,
             TeachingShare.status == ShareStatusEnum.SHARING.value,
-            TeachingShare.expired_at > now,
+            or_(TeachingShare.expired_at.is_(None), TeachingShare.expired_at > now),
         )
         q = db.query(TeachingShare).filter(
             or_(
@@ -707,11 +759,7 @@ class TeachingService:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "病例不存在")
         visible = False
         if share.share_type == ShareTypeEnum.TEMPORARY.value:
-            active = (
-                share.status == ShareStatusEnum.SHARING.value
-                and bool(share.expired_at)
-                and share.expired_at > now
-            )
+            active = _temporary_active(share, now)
             if active and not _share_reaches(share, user):
                 raise HTTPException(status.HTTP_403_FORBIDDEN, "这份分享没有发给你所在的分组")
             visible = active

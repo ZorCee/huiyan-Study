@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 病例中心。教师 / 管理员在同一页切换检索、AI 建案、教学分享。
+ * 病例中心。教师 / 管理员在同一页切换检索、AI 建案；教学分享已移到侧栏「教学」。
  * 学员只看到病例检索列表。
  */
 import { computed } from 'vue'
@@ -8,7 +8,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import CaseBrowseWorkspace from './CaseBrowseWorkspace.vue'
 import AiCaseBuilder from '@/views/training/ai-case-builder.vue'
-import TeachingShare from '@/views/training/teaching-share.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -16,7 +15,7 @@ const userStore = useUserStore()
 
 const isTeacher = computed(() => userStore.isAdmin || userStore.isDoctor)
 
-const TAB_NAMES = ['browse', 'ai-builder', 'my-shares'] as const
+const TAB_NAMES = ['browse', 'ai-builder'] as const
 
 const caseCenterTab = computed({
   get() {
@@ -46,9 +45,6 @@ const caseCenterTab = computed({
       <el-tab-pane label="AI 智能建案" name="ai-builder" lazy>
         <AiCaseBuilder embedded />
       </el-tab-pane>
-      <el-tab-pane label="我的教学分享" name="my-shares" lazy>
-        <TeachingShare embedded />
-      </el-tab-pane>
     </el-tabs>
     <CaseBrowseWorkspace v-else />
   </div>
@@ -57,7 +53,7 @@ const caseCenterTab = computed({
 <style scoped>
 .case-hub {
   min-height: 100vh;
-  background: #edf1f6;
+  background: var(--hy-c-page, #edf1f6);
 }
 .case-center-tabs {
   padding: 16px 16px 0;

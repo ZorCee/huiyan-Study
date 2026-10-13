@@ -5,8 +5,10 @@
  * 发布并加入实训 → is_published + is_train_case
  */
 import { computed, reactive, ref, watch } from 'vue'
-import { EditPen } from '@element-plus/icons-vue'
+import { ElMessageBox } from 'element-plus'
+import { EditPen, WarningFilled } from '@element-plus/icons-vue'
 import { CaseBrowseApi } from '@/api'
+import { DISEASES, SOURCE_META, optionLabel, type CaseFinding } from '@/utils/case-findings'
 import {
   TEACHING_OUTLINE,
   emptyTeachingSections,
@@ -21,15 +23,6 @@ const LESION_OPTIONS = [
   { label: '出血 HE', value: 'HE' },
   { label: '硬性渗出 EX', value: 'EX' },
   { label: '软性渗出 SE', value: 'SE' }
-]
-
-const DR_OPTIONS = [
-  { label: '不适用（非 DR 病种）', value: '' },
-  { label: '0 级 无 DR', value: '0' },
-  { label: '1 级 轻度 NPDR', value: '1' },
-  { label: '2 级 中度 NPDR', value: '2' },
-  { label: '3 级 重度 NPDR', value: '3' },
-  { label: '4 级 PDR（增殖性）', value: '4' }
 ]
 
 const props = defineProps<{
@@ -48,7 +41,7 @@ const dialogVisible = computed({
 })
 
 const form = reactive({
-  goldDrGrade: '' as string,
+  findings: {} as Record<string, string>,
   goldDiagnosis: '',
   sections: emptyTeachingSections(),
   passScore: 60,
@@ -59,8 +52,21 @@ const legacyPoints = ref('')
 const saving = ref(false)
 const publishing = ref(false)
 
+/** 打开弹窗时的结论，用来判断哪些病种被教师改过、显示来源和 AI 建议 */
+const original = ref<Record<string, CaseFinding>>({})
+
 const hydrate = (d: Detail | null) => {
-  form.goldDrGrade = d?.goldDrGrade ?? (d?.drLevel != null ? String(d.drLevel) : '')
+  const map: Record<string, CaseFinding> = {}
+  for (const f of d?.findings || []) map[f.disease] = f
+  const legacyDr = d?.goldDrGrade ?? (d?.drLevel != null ? String(d.drLevel) : '')
+  if (!map.DR && legacyDr) {
+    map.DR = {
+      disease: 'DR', diseaseLabel: '', value: legacyDr,
+      valueLabel: optionLabel('DR', legacyDr), source: 'DATASET'
+    }
+  }
+  original.value = map
+  form.findings = Object.fromEntries(DISEASES.map((x) => [x.key, map[x.key]?.value || '']))
   form.goldDiagnosis = d?.goldDiagnosis || ''
   const parsed = parseTeachingPoints(d?.teachingPoints || '')
   form.sections = { ...emptyTeachingSections(), ...parsed.sections }
@@ -85,8 +91,40 @@ const buildLesions = () => {
   return form.lesionTypes.map((t) => prev.get(t) || { type: t })
 }
 
+const isChanged = (disease: string) =>
+  (form.findings[disease] || '') !== (original.value[disease]?.value || '')
+
+const aiSuggestion = (disease: string) => original.value[disease]?.aiValue || ''
+
+/** 当前值与 AI 建议不一致；仍是 AI 来源且未改动时不算冲突 */
+const conflictOf = (disease: string) => {
+  const ai = aiSuggestion(disease)
+  const value = form.findings[disease] || ''
+  if (!ai || !value || ai === value) return false
+  return isChanged(disease) || original.value[disease]?.source !== 'AI'
+}
+
+const sourceTag = (disease: string) => {
+  if (!form.findings[disease]) return null
+  if (isChanged(disease)) return { text: '人工（未保存）', type: 'success' as const }
+  const src = original.value[disease]?.source
+  return src ? SOURCE_META[src] : null
+}
+
+const conflictCount = computed(() => DISEASES.filter((x) => conflictOf(x.key)).length)
+const titleConflicts = computed(() =>
+  (props.data?.findingConflicts || []).filter((c) => c.startsWith('标题') && !isChanged('DR'))
+)
+
+/** 只提交改过的病种，未改动的 AI 来源保持「待复核」 */
+const changedFindings = () =>
+  DISEASES.filter((x) => isChanged(x.key)).map((x) => ({
+    disease: x.key,
+    value: form.findings[x.key] || ''
+  }))
+
 const payload = (): CaseBrowseApi.GoldStandardUpdate => ({
-  goldDrGrade: form.goldDrGrade,
+  findings: changedFindings(),
   goldDiagnosis: form.goldDiagnosis.trim(),
   teachingPoints: serializeTeachingPoints(form.sections) || legacyPoints.value.trim(),
   passScore: form.passScore,
@@ -97,6 +135,17 @@ const submit = async (publish: boolean) => {
   if (!props.data?.id) return
   if (publish && !form.goldDiagnosis.trim()) {
     return
+  }
+  if (publish && (conflictCount.value || titleConflicts.value.length)) {
+    try {
+      await ElMessageBox.confirm(
+        '金标准与 AI 建议或标题仍不一致。发布后以当前金标准为准，来源记为人工，学员按此评分。确定发布吗？',
+        '存在冲突',
+        { type: 'warning', confirmButtonText: '确认发布', cancelButtonText: '再看看' }
+      )
+    } catch {
+      return
+    }
   }
   const flag = publish ? publishing : saving
   flag.value = true
@@ -136,16 +185,86 @@ const title = computed(() =>
       <el-tag v-else type="success" size="small" effect="plain">已发布</el-tag>
     </div>
 
+    <el-alert
+      v-if="data?.qualitySummary?.lowQuality"
+      :type="data.qualitySummary.level === 'ungradable' ? 'error' : 'warning'"
+      :closable="false"
+      show-icon
+      :title="`图像质控：${data.qualitySummary.levelText}（${data.qualitySummary.eyes.map((e) => `${e.eyeText} ${e.qualityText}`).join('，')}）`"
+      :description="
+        data.qualitySummary.override
+          ? `已人工放行：${data.qualitySummary.override.reason}（${data.qualitySummary.override.at}）。默认不进入练习与考试抽题。`
+          : '该病例默认不进入练习与考试抽题，请复核图像后再决定是否发布。'
+      "
+      class="title-conflict"
+    />
+
+    <el-alert
+      v-for="(c, i) in titleConflicts"
+      :key="i"
+      type="warning"
+      :closable="false"
+      show-icon
+      :title="c"
+      class="title-conflict"
+    />
+
     <el-form label-width="132px" class="gold-form">
-      <el-form-item label="金标准分级">
-        <el-select v-model="form.goldDrGrade" style="width: 100%">
-          <el-option
-            v-for="opt in DR_OPTIONS"
-            :key="opt.value"
-            :label="opt.label"
-            :value="opt.value"
-          />
-        </el-select>
+      <el-form-item
+        v-for="d in DISEASES"
+        :key="d.key"
+        :label="d.key === 'DR' ? '金标准 DR 分级' : `金标准 ${d.label}`"
+      >
+        <div class="finding-block" :class="{ 'is-conflict': conflictOf(d.key) }">
+          <div class="finding-main">
+            <el-select
+              v-if="d.key === 'DR'"
+              v-model="form.findings[d.key]"
+              class="finding-select"
+            >
+              <el-option label="不适用（非 DR 病种）" value="" />
+              <el-option v-for="o in d.options" :key="o.value" :label="o.label" :value="o.value" />
+            </el-select>
+            <el-radio-group v-else v-model="form.findings[d.key]">
+              <el-radio-button value="">不填</el-radio-button>
+              <el-radio-button v-for="o in d.options" :key="o.value" :value="o.value">
+                {{ o.label }}
+              </el-radio-button>
+            </el-radio-group>
+            <el-tag
+              v-if="sourceTag(d.key)"
+              :type="sourceTag(d.key)!.type"
+              size="small"
+              effect="plain"
+            >
+              {{ sourceTag(d.key)!.text }}
+            </el-tag>
+          </div>
+          <div v-if="aiSuggestion(d.key)" class="finding-ai">
+            <el-icon v-if="conflictOf(d.key)"><WarningFilled /></el-icon>
+            <span>
+              AI 建议：{{ optionLabel(d.key, aiSuggestion(d.key)) || aiSuggestion(d.key) }}
+              <template v-if="conflictOf(d.key)">，与当前金标准不一致</template>
+            </span>
+            <el-button
+              v-if="form.findings[d.key] !== aiSuggestion(d.key)"
+              link
+              type="primary"
+              size="small"
+              @click="form.findings[d.key] = aiSuggestion(d.key)"
+            >
+              选用 AI 值
+            </el-button>
+            <el-button
+              v-if="isChanged(d.key)"
+              link
+              size="small"
+              @click="form.findings[d.key] = original[d.key]?.value || ''"
+            >
+              还原
+            </el-button>
+          </div>
+        </div>
       </el-form-item>
       <el-form-item label="金标准诊断" required>
         <el-input
@@ -227,14 +346,52 @@ const title = computed(() =>
 }
 .case-title {
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .gold-form {
   margin-bottom: 12px;
 }
+.title-conflict {
+  margin-bottom: 14px;
+}
+.finding-block {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+}
+.finding-block.is-conflict {
+  border-color: var(--el-color-warning-light-5);
+  background: var(--el-color-warning-light-9);
+}
+.finding-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.finding-select {
+  flex: 1;
+  min-width: 220px;
+}
+.finding-ai {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--hy-c-text-2, #4e5969);
+}
+.finding-block.is-conflict .finding-ai {
+  color: var(--el-color-warning-dark-2);
+}
 .muted {
   margin-left: 10px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 12px;
 }
 .outline-tip,
@@ -242,13 +399,13 @@ const title = computed(() =>
   margin: 0;
   line-height: 1.6;
   font-size: 13px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
 }
 .legacy {
   margin-top: 8px;
   padding: 8px 10px;
   border-radius: 6px;
-  background: #fff7e8;
-  color: #1d2129;
+  background: var(--hy-c-warning-soft, #fff7e8);
+  color: var(--hy-c-text, #1d2129);
 }
 </style>

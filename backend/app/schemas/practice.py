@@ -208,6 +208,9 @@ class PracticeOut(_CamelModel):
     exam_index: int = 0
     exam_total: int = 0
     answers_open: bool = False
+    # 金标准可见性按查看人计算：老师在学员交卷后即可看；学员按 answers_open。
+    gold_visible: bool = False
+    gold_lock_reason: str = ""
     hints: List[str] = Field(default_factory=list)
     hints_left: int = 0
     next_session_id: int = 0

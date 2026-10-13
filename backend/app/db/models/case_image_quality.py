@@ -1,5 +1,5 @@
 """
-影像质量评估结果表
+图像质控结果表
 
 对应《医学培训端评估与工作流重构报告》P0/P1：
     「缺图像质量入口：低质量图可能被当正常或被强制作答」
@@ -26,7 +26,7 @@ from app.db.base import Base, TimestampMixin
 
 class CaseImageQuality(Base, TimestampMixin):
     __tablename__ = "biz_case_image_quality"
-    __table_args__ = {"comment": "影像质量评估结果（派生对象）"}
+    __table_args__ = {"comment": "图像质控结果（派生对象）"}
 
     id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=True, comment="主键ID"

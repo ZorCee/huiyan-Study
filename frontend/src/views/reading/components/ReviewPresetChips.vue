@@ -104,10 +104,10 @@ const removeCustom = (index: number) => {
   color: #409eff;
 }
 .preset-box.dark .preset-kind {
-  color: #9aa1af;
+  color: var(--hy-c-text-3, #9aa1af);
 }
 .preset-box.light .preset-kind {
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
 }
 .preset-chip {
   cursor: pointer;

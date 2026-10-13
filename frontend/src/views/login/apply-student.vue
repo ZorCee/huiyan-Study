@@ -173,7 +173,7 @@ const goLogin = () => router.push({ path: '/login' })
   position: relative;
   width: 100vw;
   min-height: 100vh;
-  background: linear-gradient(135deg, #eef4ff 0%, #f5f9ff 60%, #ffffff 100%);
+  background: linear-gradient(135deg, var(--hy-c-primary-soft, #eef4ff) 0%, var(--hy-c-page, #f5f9ff) 60%, var(--hy-c-surface, #ffffff) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -181,35 +181,35 @@ const goLogin = () => router.push({ path: '/login' })
 }
 .apply-bg { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .bg-circle { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.4; }
-.c1 { width: 480px; height: 480px; background: #c7dbff; top: -120px; left: -100px; }
-.c2 { width: 380px; height: 380px; background: #d6f0ff; bottom: -80px; right: -60px; }
+.c1 { width: 480px; height: 480px; background: var(--hy-c-primary-soft, #c7dbff); top: -120px; left: -100px; }
+.c2 { width: 380px; height: 380px; background: var(--hy-c-primary-soft, #d6f0ff); bottom: -80px; right: -60px; }
 .apply-container { position: relative; z-index: 2; width: 520px; max-width: 92vw; }
 .apply-card {
-  background: #fff;
+  background: var(--hy-c-surface, #fff);
   border-radius: 16px;
   padding: 36px 40px 32px;
   box-shadow: 0 20px 60px rgba(22, 119, 255, 0.12);
 }
 .card-header { margin-bottom: 20px; }
-.card-header h2 { margin: 0; font-size: 24px; font-weight: 700; color: #1d2129; }
-.card-header p { margin: 8px 0 0; font-size: 13px; color: #86909c; line-height: 1.6; }
+.card-header h2 { margin: 0; font-size: 24px; font-weight: 700; color: var(--hy-c-text, #1d2129); }
+.card-header p { margin: 8px 0 0; font-size: 13px; color: var(--hy-c-text-3, #86909c); line-height: 1.6; }
 .submit-btn { width: 100%; letter-spacing: 4px; }
 .query-box {
   margin-top: 22px;
   padding-top: 16px;
-  border-top: 1px dashed #e5e6eb;
+  border-top: 1px dashed var(--hy-c-border, #e5e6eb);
 }
-.query-title { font-size: 13px; color: #4e5969; margin-bottom: 8px; }
+.query-title { font-size: 13px; color: var(--hy-c-text-2, #4e5969); margin-bottom: 8px; }
 .query-row { display: flex; gap: 8px; }
 .query-result {
   margin-top: 10px;
   font-size: 13px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   line-height: 1.8;
-  background: #f7f8fa;
+  background: var(--hy-c-fill, #f7f8fa);
   border-radius: 8px;
   padding: 10px 12px;
 }
-.extra { margin-top: 18px; text-align: center; color: #4e5969; font-size: 13px; }
+.extra { margin-top: 18px; text-align: center; color: var(--hy-c-text-2, #4e5969); font-size: 13px; }
 .link { color: #1677ff; cursor: pointer; margin-left: 4px; }
 </style>

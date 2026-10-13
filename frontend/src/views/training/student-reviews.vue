@@ -92,7 +92,7 @@ onMounted(fetchAll)
   margin: 0 auto;
   padding: 24px 28px 36px;
   min-height: 100vh;
-  background: #fff;
+  background: var(--hy-c-surface, #fff);
 }
 .page-head {
   display: flex;
@@ -105,12 +105,12 @@ onMounted(fetchAll)
   margin: 0 0 4px;
   font-size: 22px;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .page-head p,
 .muted {
   margin: 0;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 12px;
 }
 .block {
@@ -120,11 +120,11 @@ onMounted(fetchAll)
   margin: 0 0 10px;
   font-size: 15px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .empty {
   padding: 36px 0;
   text-align: center;
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
 }
 </style>

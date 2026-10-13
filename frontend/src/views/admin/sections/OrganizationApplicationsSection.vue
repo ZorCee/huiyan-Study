@@ -225,8 +225,8 @@ onMounted(fetchList)
 
 <style scoped>
 .card {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 12px;
   padding: 18px 20px;
 }
@@ -244,18 +244,18 @@ onMounted(fetchList)
   gap: 8px;
   font-size: 15px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .card-actions {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.muted { color: #86909c; font-size: 12px; font-weight: 400; }
+.muted { color: var(--hy-c-text-3, #86909c); font-size: 12px; font-weight: 400; }
 .muted.small { font-size: 11px; }
 .ml8 { margin-left: 8px; }
-.name { color: #1d2129; font-size: 13px; font-weight: 500; }
-.empty { padding: 36px 0; text-align: center; color: #c9cdd4; font-size: 14px; }
+.name { color: var(--hy-c-text, #1d2129); font-size: 13px; font-weight: 500; }
+.empty { padding: 36px 0; text-align: center; color: var(--hy-c-text-4, #c9cdd4); font-size: 14px; }
 .pagination { margin-top: 14px; display: flex; justify-content: flex-end; }
 
 .detail .row {
@@ -263,10 +263,10 @@ onMounted(fetchList)
   gap: 12px;
   padding: 6px 0;
   font-size: 13px;
-  color: #1d2129;
-  border-bottom: 1px dashed #f1f2f5;
+  color: var(--hy-c-text, #1d2129);
+  border-bottom: 1px dashed var(--hy-c-border, #f1f2f5);
 }
 .detail .row:last-child { border-bottom: none; }
-.detail .lbl { width: 80px; flex-shrink: 0; color: #86909c; }
+.detail .lbl { width: 80px; flex-shrink: 0; color: var(--hy-c-text-3, #86909c); }
 .detail .multiline { white-space: pre-wrap; word-break: break-word; }
 </style>

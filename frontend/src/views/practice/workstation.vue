@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Back, MagicStick } from '@element-plus/icons-vue'
 
 import { ReadingApi, PracticeApi, ExamApi } from '@/api'
+import { requestInboxRefresh } from '@/composables/useInboxSignals'
 import { wadorsImageId } from '@/utils/cornerstone3d'
 import {
   buildAnswerSummary,
@@ -182,8 +183,9 @@ const handInPaper = async () => {
   try {
     const out = await ExamApi.handIn(record.value.examPaperId, currentPayload())
     record.value = out
+    requestInboxRefresh()
     if (out.answersOpen) {
-      await loadGoldStandard()
+      if (out.goldVisible) await loadGoldStandard()
       ElMessage.success('整卷已交，可以查看答案')
       return
     }
@@ -196,8 +198,10 @@ const handInPaper = async () => {
   }
 }
 const goldData = ref<PracticeApi.GoldStandardData | null>(null)
+const goldError = ref('')
+const goldVisible = computed(() => !!record.value?.goldVisible)
 const goldAnnotations = computed<AnnotationItem[]>(() => {
-  if (!record.value?.answersOpen || !goldData.value) return []
+  if (!goldVisible.value || !goldData.value) return []
   return (goldData.value.annotations || []) as AnnotationItem[]
 })
 
@@ -214,7 +218,7 @@ const canvasState = reactive<CanvasState>({
 
 /** 提交前不把病灶图交给画布，避免答题时就把答案画出来 */
 const goldOverlayUrl = computed(() => {
-  if (!record.value?.answersOpen) return ''
+  if (!goldVisible.value) return ''
   if (!canvasState.layers.gold) return ''
   return goldData.value?.lesionMaskUrl || ''
 })
@@ -222,9 +226,10 @@ const goldOverlayUrl = computed(() => {
 const goldLayerHint = computed(() => {
   const gold = goldData.value
   if (!gold) {
-    return record.value?.answersOpen
-      ? '正在载入金标准图层...'
-      : '提交之后才能看到金标准。'
+    if (!goldVisible.value) {
+      return record.value?.goldLockReason || '暂时不能查看金标准。'
+    }
+    return goldError.value || '正在载入金标准图层...'
   }
   const boxes = (gold.annotations || []).length
   const mask = !!gold.lesionMaskUrl
@@ -349,6 +354,37 @@ const onMeasurementsChange = (next: AnnotationItem[]) => {
 const onResetView = () => {
   canvasState.viewport = { scale: 1, x: 0, y: 0, ww: 255, wl: 127, invert: false }
 }
+
+/* ========== 只读查看（成绩 / 评定）：大图 + 平移 + 全屏 ========== */
+/** 只读模式下不渲染左侧工具栏，布局需改成两列，否则影像会落进 64px 的工具栏列 */
+const readonlyLayout = computed(() => viewMode.value || reviewMode.value)
+
+// 工具栏不可见时没有入口切换工具，默认给平移，滚轮缩放由画布内置
+watch(
+  readonlyLayout,
+  (ro) => {
+    if (ro) canvasState.tool = 'pan'
+  },
+  { immediate: true }
+)
+
+const canvasAreaRef = ref<HTMLElement | null>(null)
+const isFullscreen = ref(false)
+const syncFullscreen = () => {
+  isFullscreen.value = !!canvasAreaRef.value && document.fullscreenElement === canvasAreaRef.value
+}
+const toggleFullscreen = async () => {
+  const el = canvasAreaRef.value
+  if (!el) return
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen()
+    else await el.requestFullscreen()
+  } catch {
+    ElMessage.warning('当前浏览器不支持全屏查看')
+  }
+}
+onMounted(() => document.addEventListener('fullscreenchange', syncFullscreen))
+onUnmounted(() => document.removeEventListener('fullscreenchange', syncFullscreen))
 
 /* ========== 错误点显示 ========== */
 const epTagType = (t: PracticeApi.ErrorPointType) => {
@@ -532,12 +568,16 @@ const loadRecord = async () => {
 const loadGoldStandard = async () => {
   const cid = record.value?.caseId || caseId.value
   if (!cid) return
-  if (!record.value?.answersOpen) return
+  if (!goldVisible.value) return
+  goldError.value = ''
   try {
     goldData.value = await PracticeApi.getGoldStandard(cid, record.value?.id)
     canvasState.layers.gold = true
-  } catch {
+  } catch (err: any) {
     goldData.value = null
+    canvasState.layers.gold = false
+    goldError.value =
+      err?.response?.data?.detail || err?.message || '金标准载入失败，请稍后重试。'
   }
 }
 
@@ -645,7 +685,7 @@ const handleSubmit = async () => {
       })
       return
     }
-    if (out.answersOpen) await loadGoldStandard()
+    if (out.goldVisible) await loadGoldStandard()
     if (out.attemptKind === 'EXAM' && out.examPaperId && !out.answersOpen) {
       ElMessage.success('已交卷。老师收卷后才公布成绩。')
       router.push('/training/practice')
@@ -716,7 +756,7 @@ onMounted(async () => {
   // 先取会话（拿到权威 caseId），再按会话病例拉影像，保证图文一致
   await loadRecord()
   await fetchSource()
-  if (record.value?.answersOpen) {
+  if (goldVisible.value) {
     await loadGoldStandard()
   }
   startTime.value = Date.now()
@@ -815,7 +855,7 @@ watch(currentImageIndex, () => {
       </div>
     </header>
 
-    <div class="ws-body">
+    <div class="ws-body" :class="{ 'is-readonly': readonlyLayout }">
       <!-- 左侧工具栏 -->
       <ReadingToolbar
         v-if="!viewMode && !reviewMode"
@@ -832,8 +872,15 @@ watch(currentImageIndex, () => {
       />
 
       <!-- 中间画布 -->
-      <div class="canvas-area">
+      <div ref="canvasAreaRef" class="canvas-area">
         <div v-if="activeLocateTask" class="locate-banner">{{ activeLocateTask.prompt }}</div>
+        <div v-if="readonlyLayout && currentImage" class="view-controls">
+          <span class="view-hint">拖拽平移 · 滚轮缩放</span>
+          <button type="button" class="view-btn" @click="onResetView">重置视图</button>
+          <button type="button" class="view-btn" :aria-pressed="isFullscreen" @click="toggleFullscreen">
+            {{ isFullscreen ? '退出全屏' : '全屏查看' }}
+          </button>
+        </div>
         <div v-if="sourceLoading" v-loading="true" class="loading-mask">影像加载中…</div>
         <CoreRetinaStation
           v-else-if="currentImage"
@@ -1169,7 +1216,11 @@ watch(currentImageIndex, () => {
           </p>
 
           <div class="layer-toggle">
-            <el-checkbox v-model="canvasState.layers.gold" @change="onGoldToggle">
+            <el-checkbox
+              v-model="canvasState.layers.gold"
+              :disabled="!goldVisible"
+              @change="onGoldToggle"
+            >
               显示金标准图层
             </el-checkbox>
             <p class="gold-hint">{{ goldLayerHint }}</p>
@@ -1260,6 +1311,65 @@ watch(currentImageIndex, () => {
   display: grid;
   grid-template-columns: 64px 1fr 340px;
   min-height: 0;
+}
+.ws-body.is-readonly {
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 32%);
+}
+.ws-body.is-readonly .side-panel {
+  min-width: 0;
+  min-height: 0;
+}
+.ws-body.is-readonly .canvas-area {
+  min-width: 0;
+  min-height: 0;
+}
+.canvas-area:fullscreen {
+  width: 100vw;
+  height: 100vh;
+}
+.view-controls {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.view-hint {
+  font-size: 12px;
+  color: #c5cad3;
+  background: rgba(20, 22, 28, 0.72);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.view-btn {
+  font-size: 13px;
+  color: #f5f7fa;
+  background: rgba(20, 22, 28, 0.85);
+  border: 1px solid #3a3f4b;
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.view-btn:hover { border-color: #4091ff; color: #ffffff; }
+.view-btn:focus-visible { outline: 2px solid #4091ff; outline-offset: 2px; }
+@media (max-width: 1024px) {
+  .ws-body.is-readonly {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .ws-body.is-readonly .canvas-area {
+    flex: 0 0 60vh;
+  }
+  .ws-body.is-readonly .side-panel {
+    flex: 0 0 auto;
+    overflow-y: visible;
+    border-left: none;
+    border-top: 1px solid #2a2a2a;
+  }
+  .view-hint { display: none; }
 }
 .locate-banner {
   position: absolute;
@@ -1417,7 +1527,7 @@ watch(currentImageIndex, () => {
 }
 .roi-hint {
   font-size: 11px;
-  color: #909399;
+  color: var(--hy-c-text-3, #909399);
 }
 
 .multi-blank-wrap {

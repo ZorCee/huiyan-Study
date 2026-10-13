@@ -22,7 +22,7 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, Path, Query, Request
 
 from app.common.response import success
 from app.core.dependencies import CurrentUser, DbSession, require_roles
@@ -38,6 +38,7 @@ from app.schemas.learning import (
     ResourceUpdateParams,
 )
 from app.services.learning_service import LearningService
+from app.services.op_log_service import OpLogService
 
 
 router = APIRouter(
@@ -173,7 +174,7 @@ def list_notes(
     keyword: Optional[str] = Query(None),
     caseId: Optional[int] = Query(None, ge=1),
     resourceId: Optional[int] = Query(None, ge=1),
-    userId: Optional[int] = Query(None, ge=1, description="ADMIN 可指定，其他角色忽略"),
+    userId: Optional[int] = Query(None, ge=1, description="已废弃：始终只返回本人笔记；查看他人请用 /learning/admin/notes"),
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=200),
 ):
@@ -230,3 +231,65 @@ def delete_note(
 ):
     LearningService.delete_note(db=db, user=current_user, note_id=noteId)
     return success(msg="已删除")
+
+
+# ====================== 笔记审核视图（仅管理员，只读 + 审计） ======================
+
+_admin_only = Depends(require_roles(RoleEnum.ADMIN))
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else ""
+
+
+@router.get(
+    "/admin/notes",
+    summary="笔记审核视图：他人笔记列表（只读）",
+    response_model=None,
+    dependencies=[_admin_only],
+)
+def admin_list_notes(
+    current_user: CurrentUser,
+    db: DbSession,
+    request: Request,
+    keyword: Optional[str] = Query(None),
+    userId: Optional[int] = Query(None, ge=1),
+    caseId: Optional[int] = Query(None, ge=1),
+    page: int = Query(1, ge=1),
+    pageSize: int = Query(20, ge=1, le=200),
+):
+    query = NoteListQuery(
+        keyword=keyword, case_id=caseId, user_id=userId,
+        page=page, page_size=pageSize,
+    )
+    data = LearningService.admin_list_notes(db=db, query=query)
+    OpLogService.record(
+        db, user=current_user, module="learning", action="note.admin_list",
+        detail=(
+            f"审核视图查看笔记列表 userId={userId or '全部'} "
+            f"keyword={keyword or ''} page={page} 命中 {data.total} 条"
+        ),
+        ip=_client_ip(request),
+    )
+    return success(data=data.model_dump(by_alias=True))
+
+
+@router.get(
+    "/admin/notes/{noteId}",
+    summary="笔记审核视图：他人笔记详情（只读）",
+    response_model=None,
+    dependencies=[_admin_only],
+)
+def admin_get_note(
+    current_user: CurrentUser,
+    db: DbSession,
+    request: Request,
+    noteId: int = Path(..., ge=1),
+):
+    data = LearningService.admin_get_note(db=db, note_id=noteId)
+    OpLogService.record(
+        db, user=current_user, module="learning", action="note.admin_view",
+        detail=f"审核视图查看笔记 #{data.id}《{data.title}》作者 {data.user_name}(id={data.user_id})",
+        ip=_client_ip(request),
+    )
+    return success(data=data.model_dump(by_alias=True))

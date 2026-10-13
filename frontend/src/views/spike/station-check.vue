@@ -209,7 +209,7 @@ onMounted(async () => {
 <style scoped>
 .wrap { padding: 16px; font-family: system-ui, sans-serif; }
 .stage { width: 620px; height: 460px; }
-.out { background: #f5f7fa; padding: 10px; font-size: 13px; line-height: 1.7; }
+.out { background: var(--hy-c-fill, #f5f7fa); padding: 10px; font-size: 13px; line-height: 1.7; }
 .verdict { font-weight: 600; }
 .verdict.ok { color: #14a44d; }
 .verdict.bad { color: #f56c6c; }

@@ -30,6 +30,7 @@ from app.db.models.user import actor_role_text
 from app.common import workflow
 from app.common.dr_grade import grade_level, grade_text, is_applicable
 from app.core.content_policy import Scene, redact, resolve_mode
+from app.services import case_quality
 from app.services.op_log_service import OpLogService
 from app.services.common_service import learner_progress, learner_progress_sum
 from app.schemas.practice import (
@@ -702,6 +703,9 @@ def _question_ids(record: PracticeSession) -> list:
     return list(raw) if isinstance(raw, list) else []
 
 
+TEXT_PAPER_SIZE = 4
+
+
 def _ensure_text_paper(record: PracticeSession, db: Optional[Session] = None) -> bool:
     """开始练习时定下一组题目。优先抽取当前病例关联的逐图题与指南挖空题。已有题号就不再换，避免刷新后题目变了。"""
     if _question_ids(record):
@@ -721,7 +725,8 @@ def _ensure_text_paper(record: PracticeSession, db: Optional[Session] = None) ->
     # 若未命中或不足 4 题，用常规题库补齐
     if len(selected_ids) < 4:
         needed = 4 - len(selected_ids)
-        legacy_items = build_paper(needed)
+        # build_paper 至少返回 3 道（三种题型各一），这里只取需要的数量，保证每题总数为 4，和考试预览一致
+        legacy_items = build_paper(needed)[:needed]
         selected_ids.extend([item.id for item in legacy_items])
 
     record.text_question_ids = selected_ids
@@ -911,6 +916,34 @@ def _answers_open(db: Session, record: PracticeSession) -> bool:
     return pending is None
 
 
+GOLD_REASON_PRACTICE_DRAFT = "提交本题后即可查看金标准。"
+GOLD_REASON_EXAM_DRAFT = "交卷后，等老师收卷才能查看金标准。"
+GOLD_REASON_EXAM_WAIT_CLOSE = "你已交卷。老师收卷后公布答案和金标准。"
+GOLD_REASON_EXAM_WAIT_GROUP = "你已交卷。本场还有题目未交，全部交卷后公布金标准。"
+GOLD_REASON_TEACHER_DRAFT = "学员还没有交这道题，交卷后可查看金标准。"
+
+
+def gold_access(
+    db: Session, record: PracticeSession, viewer: Optional[User] = None
+) -> Tuple[bool, str]:
+    """金标准能否查看，以及不能查看时给用户的原因。前端提示和接口 403 共用这里的文案。"""
+    done = record.status in (
+        PracticeStatusEnum.SUBMITTED.value,
+        PracticeStatusEnum.REVIEWED.value,
+    )
+    if viewer is not None and _is_teacher_or_admin(viewer):
+        return (True, "") if done else (False, GOLD_REASON_TEACHER_DRAFT)
+    if _answers_open(db, record):
+        return True, ""
+    if not _is_exam(record):
+        return False, GOLD_REASON_PRACTICE_DRAFT
+    if not done:
+        return False, GOLD_REASON_EXAM_DRAFT
+    if int(getattr(record, "exam_paper_id", 0) or 0):
+        return False, GOLD_REASON_EXAM_WAIT_CLOSE
+    return False, GOLD_REASON_EXAM_WAIT_GROUP
+
+
 def exam_locks_answers(db: Session, user_id: int, case_id: int) -> bool:
     """这名学员有一场还没交完、并且包含该病例的考试。"""
     draft = (
@@ -975,6 +1008,7 @@ def _to_out(record: PracticeSession, db: Session, viewer: Optional[User] = None)
     images = _flatten_images(case.image_paths) if case else []
     case_no = case.case_no if case else ""
     revealed = _answers_open(db, record)
+    gold_visible, gold_lock_reason = gold_access(db, record, viewer)
     show_scores = revealed or (
         viewer is not None
         and _is_teacher_or_admin(viewer)
@@ -1053,6 +1087,8 @@ def _to_out(record: PracticeSession, db: Session, viewer: Optional[User] = None)
         exam_index=record.exam_index or 0,
         exam_total=record.exam_total or 0,
         answers_open=revealed,
+        gold_visible=gold_visible,
+        gold_lock_reason=gold_lock_reason,
         hints=(
             []
             if _is_exam(record)
@@ -1261,9 +1297,12 @@ class PracticeService:
         # 学员只看已加入实训的病例（教师/管理员看全部已发布）
         if is_student:
             q = q.filter(TrainingCase.is_train_case == True)  # noqa: E712
+        q = case_quality.exclude_low_quality(q)
 
         if query.category:
-            q = q.filter(TrainingCase.category == query.category)
+            from app.services import case_findings
+
+            q = q.filter(case_findings.disease_clause(db, query.category))
         if query.difficulty:
             q = q.filter(TrainingCase.difficulty == query.difficulty)
         if query.dr_level is not None:
@@ -1292,7 +1331,7 @@ class PracticeService:
             )
             if is_student:
                 fallback = fallback.filter(TrainingCase.is_train_case == True)  # noqa: E712
-            cases = fallback.all()
+            cases = case_quality.exclude_low_quality(fallback).all()
         if not cases:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -1349,11 +1388,12 @@ class PracticeService:
                     .first()
                 )
 
-            if session_row and _is_exam(session_row):
-                if not _answers_open(db, session_row):
+            if session_row:
+                visible, reason = gold_access(db, session_row, user)
+                if not visible:
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN,
-                        detail="正式考试要全部交卷后才能查看金标准",
+                        detail=reason,
                     )
             else:
                 if exam_locks_answers(db, user.id, case_id):
@@ -1391,7 +1431,7 @@ class PracticeService:
                 _ensure_case_visible(case, user)
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="请先提交本次作答，才能查看金标准",
+                    detail=GOLD_REASON_PRACTICE_DRAFT,
                 )
 
         dr = (case.gold_dr_grade or "").strip()
@@ -1461,6 +1501,7 @@ class PracticeService:
             .filter(
                 PracticeSession.user_id == user.id,
                 PracticeSession.attempt_kind == "EXAM",
+                PracticeSession.exam_paper_id == 0,
                 PracticeSession.status == PracticeStatusEnum.DRAFT.value,
             )
             .order_by(PracticeSession.exam_index.asc(), PracticeSession.id.asc())
@@ -1581,7 +1622,7 @@ class PracticeService:
             from app.services.exam_service import apply_draft, clock_expired, finalize_user
             if clock_expired(db, record):
                 apply_draft(db, record, params)
-                finalize_user(db, record.user_id, int(record.exam_paper_id))
+                finalize_user(db, record.user_id, int(record.exam_paper_id), reason="TIMEOUT")
                 db.refresh(record)
                 return _to_out(record, db)
 
@@ -1652,6 +1693,8 @@ class PracticeService:
         record.duration_seconds = params.duration_seconds or 0
         record.submitted_at = datetime.now()
         record.status = PracticeStatusEnum.SUBMITTED.value
+        if _clock and int(record.exam_paper_id or 0):
+            record.hand_in_reason = "MANUAL"
 
         record.student_diagnosis_form = params.diagnosis or None
         record.scoring_mode = result.get("scoring_mode", "keyword")

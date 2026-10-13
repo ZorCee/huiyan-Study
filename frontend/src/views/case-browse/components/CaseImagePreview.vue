@@ -224,7 +224,7 @@ const onDblClick = (event: MouseEvent) => {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--hy-c-glass, rgba(255, 255, 255, 0.85));
 }
 .nav-left { left: 14px; }
 .nav-right { right: 14px; }
@@ -237,7 +237,7 @@ const onDblClick = (event: MouseEvent) => {
 }
 .counter {
   font-size: 13px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   font-family: 'Consolas', 'Monaco', monospace;
 }
 .tools {
@@ -248,7 +248,7 @@ const onDblClick = (event: MouseEvent) => {
 .pan-hint {
   margin-left: 4px;
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
 }
 
 .thumb-strip {
@@ -265,7 +265,7 @@ const onDblClick = (event: MouseEvent) => {
   overflow: hidden;
   border: 2px solid transparent;
   cursor: pointer;
-  background: #f5f6fa;
+  background: var(--hy-c-fill, #f5f6fa);
 }
 .strip-cell.active {
   border-color: #1677ff;

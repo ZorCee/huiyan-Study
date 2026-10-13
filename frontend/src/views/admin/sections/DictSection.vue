@@ -106,8 +106,8 @@ onMounted(fetchAll)
 
 <style scoped>
 .card {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 12px;
   padding: 18px 20px;
 }
@@ -122,10 +122,10 @@ onMounted(fetchAll)
 .card-title {
   font-size: 15px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .muted {
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 12px;
   font-weight: 400;
 }
@@ -139,7 +139,7 @@ onMounted(fetchAll)
   margin-bottom: 10px;
 }
 .dict-code {
-  background: #f2f3f5;
+  background: var(--hy-c-fill, #f2f3f5);
   color: #1677ff;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
@@ -147,8 +147,8 @@ onMounted(fetchAll)
   border-radius: 4px;
 }
 .code-tag {
-  background: #f7faff;
-  border: 1px solid #e0eafc;
+  background: var(--hy-c-primary-soft, #f7faff);
+  border: 1px solid var(--hy-c-border-strong, #e0eafc);
   color: #1677ff;
   padding: 1px 8px;
   border-radius: 4px;
@@ -158,7 +158,7 @@ onMounted(fetchAll)
 .empty {
   padding: 36px 0;
   text-align: center;
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
   font-size: 14px;
 }
 </style>

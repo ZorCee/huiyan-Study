@@ -125,7 +125,7 @@ watch(activeTab, (name) => {
 <style scoped>
 .admin-page {
   min-height: 100vh;
-  background: #ffffff;
+  background: var(--hy-c-surface, #ffffff);
   display: flex;
   flex-direction: column;
 }
@@ -133,8 +133,8 @@ watch(activeTab, (name) => {
 .admin-header {
   height: 56px;
   padding: 0 24px;
-  background: #fff;
-  border-bottom: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border-bottom: 1px solid var(--hy-c-border, #e5e6eb);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -152,13 +152,13 @@ watch(activeTab, (name) => {
 .divider {
   width: 1px;
   height: 18px;
-  background: #e5e6eb;
+  background: var(--hy-c-fill-2, #e5e6eb);
 }
 
 .page-title {
   font-size: 15px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 
 .header-right {

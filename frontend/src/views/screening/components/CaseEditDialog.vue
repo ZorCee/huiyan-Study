@@ -431,7 +431,7 @@ const onSave = async () => {
 }
 .case-id-hint {
   margin-left: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 12px;
 }
 .image-block {
@@ -445,11 +445,11 @@ const onSave = async () => {
   margin-bottom: 10px;
 }
 .image-toolbar .lbl {
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   font-size: 13px;
 }
 .image-toolbar .hint {
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 12px;
 }
 .image-grid {
@@ -461,10 +461,10 @@ const onSave = async () => {
 .image-cell {
   display: flex;
   flex-direction: column;
-  border: 1px solid #e5e6eb;
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 8px;
   overflow: hidden;
-  background: #fafbfc;
+  background: var(--hy-c-fill, #fafbfc);
 }
 .thumb {
   width: 100%;
@@ -478,7 +478,7 @@ const onSave = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
   background: #1d2129;
 }
 .cell-meta {
@@ -486,8 +486,8 @@ const onSave = async () => {
   justify-content: space-between;
   align-items: center;
   padding: 4px 8px;
-  background: #fff;
-  border-top: 1px solid #f0f1f3;
+  background: var(--hy-c-surface, #fff);
+  border-top: 1px solid var(--hy-c-border, #f0f1f3);
 }
 .upload-cell :deep(.el-upload) {
   width: 100%;
@@ -495,14 +495,14 @@ const onSave = async () => {
 .upload-tile {
   width: 100%;
   height: 158px;
-  border: 1px dashed #c9cdd4;
+  border: 1px dashed var(--hy-c-border-strong, #c9cdd4);
   border-radius: 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   cursor: pointer;
   transition: border-color 0.15s;
 }
@@ -512,6 +512,6 @@ const onSave = async () => {
 }
 .upload-text {
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
 }
 </style>

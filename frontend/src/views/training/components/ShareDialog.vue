@@ -32,7 +32,7 @@ const innerVisible = computed({
 
 const isTemporary = computed(() => props.shareType === 'TEMPORARY')
 const dialogTitle = computed(() =>
-  isTemporary.value ? '分享病例至学员实训' : '提交病例入教学库'
+  isTemporary.value ? '临时分享给指定学员' : '提交到公共教学库'
 )
 
 type ScopeName = 'ALL' | 'YEAR' | 'BATCH' | 'GROUP' | 'PEOPLE'
@@ -48,6 +48,7 @@ const form = ref({
   shareScope: 'ALL' as ScopeName,
   picks: [] as string[],
   expireHours: 24,
+  longTerm: false,
   hideAnswers: true,
   title: '',
   description: '',
@@ -131,6 +132,7 @@ watch(
       shareScope: 'ALL',
       picks: [],
       expireHours: 24,
+      longTerm: false,
       hideAnswers: true,
       title: props.caseTitle || '',
       description: '',
@@ -161,7 +163,7 @@ const onSubmit = async () => {
         shareScope: chosen.shareScope,
         scopeValue: chosen.scopeValue,
         audienceIds: chosen.audienceIds,
-        expireHours: form.value.expireHours,
+        expireHours: form.value.longTerm ? 0 : form.value.expireHours,
         hideAnswers: form.value.hideAnswers,
       })
       ElMessage.success(form.value.hideAnswers ? '已分享。学员先看不到金标准，讨论结束后再公布' : '已分享，学员现在就能看到金标准')
@@ -255,14 +257,16 @@ const onSubmit = async () => {
             v-model="form.expireHours"
             :min="1"
             :max="720"
+            :disabled="form.longTerm"
             controls-position="right"
             style="width: 160px"
           />
           <span class="muted" style="margin-left: 8px">小时</span>
+          <el-checkbox v-model="form.longTerm" style="margin-left: 16px">长期有效（直到手动收回）</el-checkbox>
         </el-form-item>
         <el-form-item label="金标准">
           <el-checkbox v-model="form.hideAnswers">先隐藏，让学员独立判断</el-checkbox>
-          <div class="muted small">讨论结束后，在「我的教学分享」里点「公布金标准」。</div>
+          <div class="muted small">讨论结束后，在「教学 → 教学分享」里点「公布金标准」。</div>
         </el-form-item>
         <el-form-item label="">
           <div class="muted small">
@@ -309,12 +313,12 @@ const onSubmit = async () => {
 
 <style scoped>
 .case-hint {
-  background: #f5f9ff;
-  border: 1px solid #e6effe;
+  background: var(--hy-c-page, #f5f9ff);
+  border: 1px solid var(--hy-c-border, #e6effe);
   border-radius: 8px;
   padding: 10px 14px;
   font-size: 13px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -329,6 +333,6 @@ const onSubmit = async () => {
   gap: 8px;
   flex-wrap: wrap;
 }
-.muted { color: #86909c; font-size: 12px; }
+.muted { color: var(--hy-c-text-3, #86909c); font-size: 12px; }
 .muted.small { font-size: 12px; line-height: 1.7; }
 </style>

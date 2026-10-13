@@ -11,8 +11,12 @@ from einops import rearrange, repeat
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 try:
     from mamba_ssm.ops.selective_scan_interface import selective_scan_fn, selective_scan_ref
-except:
-    pass
+except ImportError as _mamba_err:
+    # 以前这里是 except: pass，缺 mamba_ssm 时要到前向才报 NameError，看不出真正原因。
+    raise ImportError(
+        "VMUNet 多病灶分割需要 mamba_ssm 的 selective_scan（CUDA 编译，CPU 环境无法安装）。"
+        "该模型应部署在 CSU-EYES 算法服务器上运行。原始错误：" + str(_mamba_err)
+    ) from _mamba_err
 
 # an alternative for mamba_ssm (in which causal_conv1d is needed)
 # try:

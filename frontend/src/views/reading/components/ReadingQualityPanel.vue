@@ -7,6 +7,9 @@ import { Refresh } from '@element-plus/icons-vue'
 import { ReadingApi } from '@/api'
 import { actorLabel } from '@/utils/actor'
 import ReadingReviewDialog from './ReadingReviewDialog.vue'
+import { PENDING_REVIEW_STATUS, usePendingReviewCount } from '@/composables/usePendingReviewCount'
+
+const { syncPendingReviewCount, refreshPendingReviewCount } = usePendingReviewCount()
 
 const props = defineProps<{
   caseId?: number
@@ -36,6 +39,10 @@ const fetchList = async () => {
     })
     list.value = (r.list || []).filter((row) => row.status !== 'DRAFT')
     total.value = r.total || 0
+    // 与角标同口径（只按待审状态、不限病例）时，直接用这次的 total 校准角标。
+    if (status.value === PENDING_REVIEW_STATUS && !props.caseId) {
+      syncPendingReviewCount(total.value)
+    }
   } catch {
     list.value = []
     total.value = 0
@@ -64,6 +71,9 @@ const onReviewed = () => {
   // 不要切到「已通过」，否则会把历史已通过记录一并拉出来，看起来像两条一起过了。
   current.value = null
   fetchList()
+  if (props.caseId || status.value !== PENDING_REVIEW_STATUS) {
+    void refreshPendingReviewCount()
+  }
 }
 
 const meta = (st: ReadingApi.ReadingStatus) =>
@@ -109,7 +119,15 @@ watch(() => props.caseId, () => {
       <el-table-column prop="caseNo" label="病例" min-width="140" />
       <el-table-column label="类型" width="110">
         <template #default="{ row }">
-          {{ row.recordKind === 'QUALITY' ? '图像质控作业' : '阅片诊断作业' }}
+          <span
+            :title="
+              row.recordKind === 'QUALITY'
+                ? '学员对原图做的图像质控，送教师确认'
+                : '学员对病例做的阅片诊断，送教师审核'
+            "
+          >
+            {{ row.recordKind === 'QUALITY' ? '图像质控作业' : '阅片诊断作业' }}
+          </span>
         </template>
       </el-table-column>
       <el-table-column label="状态" width="110">
@@ -178,15 +196,15 @@ watch(() => props.caseId, () => {
   flex: 1;
   min-height: 0;
   padding: 20px 24px 28px;
-  background: #eef2f6;
-  color: #1e293b;
+  background: var(--hy-c-fill, #eef2f6);
+  color: var(--hy-c-text, #1e293b);
   overflow: auto;
 }
 .quality-panel :deep(.el-table),
 .quality-panel :deep(.el-table tr),
 .quality-panel :deep(.el-table th.el-table__cell),
 .quality-panel :deep(.el-table td.el-table__cell) {
-  background: #f7f9fb;
+  background: var(--hy-c-fill, #f7f9fb);
 }
 .qp-head {
   display: flex;
@@ -199,12 +217,12 @@ watch(() => props.caseId, () => {
   margin: 0 0 4px;
   font-size: 18px;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .qp-head p {
   margin: 0;
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
 }
 .qp-toolbar {
   display: flex;
@@ -214,7 +232,7 @@ watch(() => props.caseId, () => {
 }
 .qp-hint {
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
 }
 .qp-empty {
   padding: 36px 0;

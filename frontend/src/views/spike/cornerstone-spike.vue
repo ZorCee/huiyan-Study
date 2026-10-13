@@ -299,7 +299,7 @@ onBeforeUnmount(() => {
 }
 .sub {
   margin: 4px 0 14px;
-  color: #8a8f99;
+  color: var(--hy-c-text-3, #8a8f99);
   font-size: 13px;
 }
 .body {
@@ -374,7 +374,7 @@ onBeforeUnmount(() => {
 }
 .msg {
   margin: 6px 0 0;
-  color: #8a8f99;
+  color: var(--hy-c-text-3, #8a8f99);
   font-size: 12px;
   word-break: break-all;
 }
@@ -386,7 +386,7 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 .k {
-  color: #8a8f99;
+  color: var(--hy-c-text-3, #8a8f99);
 }
 .v.ok {
   color: #52c41a;

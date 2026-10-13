@@ -16,6 +16,7 @@ import { wadorsImageId } from '@/utils/cornerstone3d'
 import { rememberReadingCaseId, rememberedReadingCaseId } from '@/utils/reading-case'
 import { actorLabel } from '@/utils/actor'
 import { useUserStore } from '@/stores/user'
+import { usePendingReviewCount } from '@/composables/usePendingReviewCount'
 
 import ReadingToolbar from './components/ReadingToolbar.vue'
 import CoreRetinaStation from '@/components/CoreRetinaStation.vue'
@@ -27,6 +28,9 @@ import CaseIdPair from '@/components/CaseIdPair.vue'
 import NoteEditDialog from '@/views/learning/components/NoteEditDialog.vue'
 import AiDiagnosisDialog from '@/components/AiDiagnosisDialog.vue'
 import ImageQuestionDrawer from './components/ImageQuestionDrawer.vue'
+import ImageQualityResultDrawer from './components/ImageQualityResultDrawer.vue'
+import AiAlgorithmDrawer from './components/AiAlgorithmDrawer.vue'
+import type { QualityCaseResult } from '@/api/reading'
 import type {
   ToolName,
   CanvasState,
@@ -46,6 +50,7 @@ type ReadingRecord = ReadingApi.ReadingRecord
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const { refreshPendingReviewCount } = usePendingReviewCount()
 
 /* ========== 角色 ========== */
 const currentRole = computed<FrontRole | ''>(() => userStore.role)
@@ -61,7 +66,7 @@ const recordId = computed(() => Number(route.query.recordId || 0))
 
 const missingCaseId = computed(() => !caseId.value && !recordId.value)
 
-/** 作业批阅只在地址明确带 tab=quality 时出现。侧栏「阅片工作台」不带这个参数，应打开阅片画面。 */
+/** 作业批阅只在地址明确带 tab=review（旧地址 tab=quality 由路由改写）时出现。侧栏「阅片工作台」不带这个参数，应打开阅片画面。 */
 type WorkbenchTab = 'reading' | 'quality'
 const workbenchTab = ref<WorkbenchTab>('reading')
 const showQualityPanel = computed(
@@ -93,7 +98,7 @@ const applyWorkbenchTabFromRoute = () => {
 }
 const openQualityTab = () => {
   workbenchTab.value = 'quality'
-  const q: Record<string, any> = { ...route.query, tab: 'quality' }
+  const q: Record<string, any> = { ...route.query, tab: 'review' }
   delete q.recordId
   router.replace({ query: q })
 }
@@ -472,7 +477,7 @@ const fetchExistingDraft = async () => {
       existingRecord.value = d
       // 不论草稿还是已提交，都把上次的成果读回来。
       //
-      // 此前只在 status === 'DRAFT' 时恢复，导致「保存并提交之后再进来，
+      // 之前只在 status === 'DRAFT' 时恢复，导致「保存并提交之后再进来，
       // 画布一片空白」—— 数据一直在库里，只是没被读出来，
       // 用户会以为提交把自己的标注弄丢了。
       canvasState.annotations = (d.annotations || []) as AnnotationItem[]
@@ -682,6 +687,7 @@ const onReview = async (accept: boolean, comment: string) => {
       accept
     })
     existingRecord.value = out
+    void refreshPendingReviewCount()
     ElMessage.success(accept ? '已通过，记录变为已通过' : '已驳回，学员可按意见修改后重交')
     const from = String(route.query.from || '')
     if (from === 'quality' || from === 'review') {
@@ -716,6 +722,7 @@ const handleReviewAndNext = async (accept: boolean, comment?: string) => {
       accept
     })
     existingRecord.value = out
+    void refreshPendingReviewCount()
     if (!reviewQueue.value.length) await loadReviewQueue()
     reviewQueue.value = reviewQueue.value.filter((row) => row.id !== id)
     lastReviewedCount.value += 1
@@ -762,7 +769,7 @@ const onReviewHotkey = (event: KeyboardEvent) => {
 const goBack = () => {
   const from = String(route.query.from || '')
   if (from === 'review' || from === 'quality') {
-    router.push({ path: '/training/reading', query: { tab: 'quality' } })
+    router.push({ path: '/training/reading', query: { tab: 'review' } })
     return
   }
   if (from === 'my-reviews') {
@@ -945,6 +952,30 @@ const reloadCurrent = () => {
 
 /* ========== 质量门控（先质量后诊断） ========== */
 const qualityChecking = ref(false)
+const qualityResultVisible = ref(false)
+const qualityResult = ref<QualityCaseResult | null>(null)
+const qualityResultLoading = ref(false)
+const qualityResultError = ref('')
+
+const loadQualityResult = async () => {
+  const cid = source.value?.caseId ?? caseId.value
+  if (!cid) return
+  qualityResultLoading.value = true
+  qualityResultError.value = ''
+  try {
+    qualityResult.value = await ReadingApi.getImageQualityResult(Number(cid))
+  } catch (err: any) {
+    qualityResult.value = null
+    qualityResultError.value = err?.message || '质控结果读取失败'
+  } finally {
+    qualityResultLoading.value = false
+  }
+}
+
+const openQualityResult = async () => {
+  qualityResultVisible.value = true
+  await loadQualityResult()
+}
 const lesionSegLoading = ref(false)
 const lesionSegUrl = ref('')
 const lesionSegImage = ref('')
@@ -952,11 +983,15 @@ const lesionSegHint = ref('')
 const lesionSegFor = (imageUrl: string) =>
   lesionSegUrl.value && lesionSegImage.value === imageUrl ? lesionSegUrl.value : ''
 
-/* ===== AI 预测图（VM-UNet 多病灶分割 + CSU-EYES 微动脉瘤分割） ===== */
-const aiPredictLoading = ref(false)
-const aiPredictAlgorithm = ref<'multi_lesions' | 'ma_detection'>('multi_lesions')
+/* ===== AI 预测图：结果来自「AI算法判读」抽屉，所有算法都在 CSU-EYES 上运行 ===== */
+const aiDrawerVisible = ref(false)
 const aiPredictOverlayUrl = ref('')
 const aiPredictHint = ref('')
+const onAiOverlay = ({ url, name }: { url: string; name: string }) => {
+  aiPredictOverlayUrl.value = url
+  canvasState.layers.heatmap = true
+  aiPredictHint.value = `${name}结果已叠加到「AI预测图」图层`
+}
 
 const togglePrimaryLayer = () => {
   canvasState.layers.primary = !canvasState.layers.primary
@@ -982,7 +1017,7 @@ const toggleGoldLayer = () => {
 const toggleAiLayer = () => {
   canvasState.layers.heatmap = !canvasState.layers.heatmap
   if (canvasState.layers.heatmap && !aiPredictOverlayUrl.value && !lesionSegUrl.value) {
-    ElMessage.info('AI 预测图层已开启，可选择算法后点击「执行预测」')
+    ElMessage.info('AI预测图层已开启，点击「AI算法判读」运行算法后显示结果')
   }
 }
 
@@ -990,81 +1025,28 @@ const toggleMyLayer = () => {
   canvasState.layers.my = !canvasState.layers.my
 }
 
-const executeAiPredict = async () => {
-  const imageUrl = currentImage.value
-  const cid = source.value?.caseId ?? caseId.value
-  if (!cid || !imageUrl) {
-    ElMessage.warning('当前没有可供 AI 推理的眼底影像')
-    return
-  }
-
-  aiPredictLoading.value = true
-  const algoName = aiPredictAlgorithm.value === 'multi_lesions' ? 'VM-UNet 多病灶分割' : 'CSU-EYES 微动脉瘤分割'
-  aiPredictHint.value = `正在调用 ${algoName}…`
-  try {
-    const res = await ReadingApi.aiPredict(Number(cid), {
-      imageUrl,
-      algorithm: aiPredictAlgorithm.value,
-      eye: currentEyeCode.value !== 'UNKNOWN' ? currentEyeCode.value : undefined
-    })
-    if (!res || !res.available || !res.overlayUrl) {
-      aiPredictOverlayUrl.value = ''
-      const msg = res?.message || `${algoName} 服务不可用`
-      aiPredictHint.value = msg
-      ElMessage.warning(msg)
-      return
-    }
-    aiPredictOverlayUrl.value = res.overlayUrl
-    canvasState.layers.heatmap = true // 自动开启 AI 预测图层
-    aiPredictHint.value = res.message || `${algoName} 完成，已叠加到画布`
-    ElMessage.success(aiPredictHint.value)
-  } catch (err: any) {
-    aiPredictHint.value = err?.message || `${algoName} 算法调用失败`
-    ElMessage.error(aiPredictHint.value)
-  } finally {
-    aiPredictLoading.value = false
-  }
-}
-
-const runLesionSeg = async () => {
-  aiPredictAlgorithm.value = 'multi_lesions'
-  await executeAiPredict()
-}
 const runQualityCheck = async () => {
   const cid = source.value?.caseId ?? caseId.value
   if (!cid) return
   qualityChecking.value = true
   try {
     const r = await ReadingApi.checkImageQuality(Number(cid))
-    // 张数只统计真正评出等级的原图。调用失败或没认出等级时不能报「完成，共 0 张」。
+    // 只报本病例；全系统累计张数和当前病例无关，不再出现在提示里
+    const total = Number(r?.total || 0)
     const evaluated = Number(r?.evaluated || 0)
-    const failed = Number(r?.failed || 0)
-    const total = Number(r?.total ?? evaluated + failed)
-    const gradedTotal = Number(r?.gradedTotal ?? evaluated)
-    const firstErr = r?.items?.find((it) => it.error)?.error || ''
-    const tally = `累计已评估 ${gradedTotal} 张（本病例 ${evaluated} 张）`
     if (total <= 0) {
       ElMessage.warning('当前病例没有可评估的原始影像')
-    } else if (failed > 0 && evaluated === 0) {
-      ElMessage.warning(
-        firstErr
-          ? `影像质控未完成：${failed} 张调用失败。原因：${firstErr}`
-          : `影像质控未完成：算法服务调用失败（${failed} 张）`
-      )
-    } else if (r?.reviewStatus === 'REVIEWED') {
-      ElMessage.success('带教教师已审核通过本病例质控')
+    } else if (evaluated === 0) {
+      ElMessage.warning('图像质控未完成：算法调用失败，原因见结果面板')
     } else if (r?.reviewStatus === 'SUBMITTED') {
-      ElMessage.success(`图像质控分析已完成（${tally}），质控记录已同步送交【带教教师评审】`)
-    } else if (r?.hasUngradable) {
-      ElMessage.warning(
-        `图像质控完成，${tally}，其中有不可判读影像，请勿据此给出阴性结论`
-      )
-    } else if (failed > 0) {
-      ElMessage.warning(`图像质控完成，${tally}，另有 ${failed} 张失败`)
+      ElMessage.success('图像质控完成，结果如下；质控记录已送交带教教师审核')
+    } else if (r?.caseSummary?.verdict === 'pass') {
+      ElMessage.success('图像质控完成，结果如下')
     } else {
-      ElMessage.success(`图像质控完成，${tally}`)
+      ElMessage.warning(`图像质控完成：${r?.caseSummary?.verdictText || '请查看结果'}`)
     }
-    await fetchSource()
+    await Promise.all([fetchSource(), loadQualityResult()])
+    qualityResultVisible.value = true
   } finally {
     qualityChecking.value = false
   }
@@ -1466,7 +1448,9 @@ const openNote = () => {
           @change="(v: string) => (v === 'quality' ? openQualityTab() : openReadingTab())"
         >
           <el-radio-button value="reading">阅片</el-radio-button>
-          <el-radio-button value="quality">作业批阅</el-radio-button>
+          <el-radio-button value="quality" title="审核学员提交的阅片和质控作业，给出通过或驳回">
+            作业批阅
+          </el-radio-button>
         </el-radio-group>
         <!-- 病例快速切换 -->
         <div v-if="caseList.length && !showQualityPanel" class="case-switch">
@@ -1559,19 +1543,19 @@ const openNote = () => {
           plain
           :loading="qualityChecking"
           :disabled="!source || sourceLoading"
+          title="评估原图可用性（好、可用、差），不评学员"
           @click="runQualityCheck"
         >
           图像质控
         </el-button>
         <el-button
-          v-if="canReview && currentImage"
           size="small"
-          type="primary"
           plain
-          :loading="lesionSegLoading"
-          @click="runLesionSeg"
+          :disabled="!source || sourceLoading"
+          title="查看已保存的原图可用性结果（好、可用、差），不评学员"
+          @click="openQualityResult"
         >
-          {{ lesionSegUrl && lesionSegImage === currentImage ? '关闭分割' : '多病灶分割' }}
+          查看质控结果
         </el-button>
         <el-button
           v-if="canReview && currentImage"
@@ -1832,23 +1816,15 @@ const openNote = () => {
 
             <!-- AI 算法选择与执行 -->
             <div class="topbar-ai-ctl">
-              <el-select
-                v-model="aiPredictAlgorithm"
-                size="small"
-                class="ai-algo-select"
-                placeholder="算法"
-              >
-                <el-option value="multi_lesions" label="VM-UNet 多病灶分割 (HE/EX/SE)" />
-                <el-option value="ma_detection" label="CSU-EYES 微动脉瘤分割 (MA)" />
-              </el-select>
               <el-button
                 type="primary"
                 size="small"
-                :loading="aiPredictLoading"
+                :icon="MagicStick"
                 class="ai-run-btn"
-                @click="executeAiPredict"
+                :disabled="!currentImage"
+                @click="aiDrawerVisible = true"
               >
-                ⚡ 运行预测
+                AI算法判读
               </el-button>
             </div>
           </div>
@@ -2108,6 +2084,22 @@ const openNote = () => {
       :case-id="caseId"
       :image-url="currentImage"
       :current-annotations="canvasState.annotations"
+    />
+
+    <ImageQualityResultDrawer
+      v-model="qualityResultVisible"
+      :result="qualityResult"
+      :loading="qualityResultLoading"
+      :error-text="qualityResultError"
+      @retry="loadQualityResult"
+    />
+
+    <AiAlgorithmDrawer
+      v-model="aiDrawerVisible"
+      :case-id="Number(source?.caseId ?? caseId) || null"
+      :image-url="currentImage || ''"
+      :eye="currentEyeCode"
+      @overlay="onAiOverlay"
     />
 
     <!-- AI 辅助诊断弹窗（CSU-EYES 真实算法服务） -->
@@ -2446,10 +2438,6 @@ const openNote = () => {
   gap: 8px;
 }
 
-.ai-algo-select {
-  width: 250px;
-}
-
 .ai-run-btn {
   font-weight: 600;
 }
@@ -2578,7 +2566,7 @@ const openNote = () => {
   white-space: nowrap;
 }
 .df-label {
-  color: #9aa1af;
+  color: var(--hy-c-text-3, #9aa1af);
   flex-shrink: 0;
 }
 .df-val {
@@ -2633,7 +2621,7 @@ const openNote = () => {
   pointer-events: auto;
 }
 .empty-sub {
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 13px;
 }
 .empty-actions {
@@ -2719,7 +2707,7 @@ const openNote = () => {
   font-size: 17px;
 }
 :deep(.review-finish-dialog .el-result__subtitle p) {
-  color: #9aa1af;
+  color: var(--hy-c-text-3, #9aa1af);
   font-size: 13px;
   margin-top: 6px;
 }
@@ -2758,7 +2746,7 @@ const openNote = () => {
   font-size: 17px;
 }
 .el-dialog.review-finish-dialog .el-result__subtitle p {
-  color: #9aa1af;
+  color: var(--hy-c-text-3, #9aa1af);
   font-size: 13px;
   margin-top: 6px;
 }

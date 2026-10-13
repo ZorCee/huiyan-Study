@@ -580,7 +580,7 @@ class ReadingService:
         diagnosis: dict,
     ) -> ReadingOut:
         """
-        学员的影像质量评估送教师审核。
+        学员的图像质控送教师审核。
 
         算法给出的等级只是建议，写进同一条阅片记录的 QUALITY 类型，
         状态停在待审核。教师沿用阅片审核接口通过或驳回后，学员端才显示已通过。
@@ -588,7 +588,7 @@ class ReadingService:
         if _is_teacher_or_admin(user):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="教师的影像质控不进入学员审核队列",
+                detail="教师的图像质控不进入学员审核队列",
             )
         case = _get_case(db, case_id)
         record = (

@@ -387,8 +387,8 @@ onMounted(() => {
 
 <style scoped>
 .card {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 12px;
   padding: 16px 18px;
 }
@@ -404,6 +404,6 @@ onMounted(() => {
   justify-content: flex-end;
 }
 .muted {
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
 }
 </style>

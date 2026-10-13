@@ -56,6 +56,11 @@ ANSWER_FIELD_BLANKS: Dict[str, Any] = {
     "annotations": [],
     "lesions": [],
     "lesion_stats": None,
+    # —— 多病种结论（含 AI 建议值与来源，仅教学人员可见）——
+    "findings": [],
+    "finding_conflicts": [],
+    # 放行留痕含教师姓名与理由，学员不可见
+    "quality_summary": None,
     # —— 结论型文本 ——
     "diagnosis": "",
     "diagnosis_text": "",

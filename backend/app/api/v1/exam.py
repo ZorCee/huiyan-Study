@@ -1,12 +1,12 @@
 """正式考试：老师组卷、学员作答、收卷后导出成绩。"""
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, Path, Query
 from fastapi.responses import Response
 
 from app.common.response import success
 from app.core.dependencies import CurrentUser, DbSession, require_roles
 from app.db.models.user import RoleEnum
-from app.schemas.exam import ExamCreate, ExamHandIn
+from app.schemas.exam import ExamCreate, ExamHandIn, ExamPreviewParams
 from app.services.exam_service import ExamService
 
 router = APIRouter(
@@ -22,6 +22,16 @@ def case_options(current_user: CurrentUser, db: DbSession):
     return success(data=[row.model_dump(by_alias=True) for row in rows])
 
 
+@router.get("/audience-options", summary="发布考试时可选的受考对象及人数")
+def audience_options(current_user: CurrentUser, db: DbSession):
+    return success(ExamService.audience_options(db, current_user))
+
+
+@router.post("/preview", summary="预览所选病例在考试里会出的题")
+def preview_exam(params: ExamPreviewParams, current_user: CurrentUser, db: DbSession):
+    return success(ExamService.preview(db, current_user, params.case_ids))
+
+
 @router.get("", summary="考试列表")
 def list_exams(current_user: CurrentUser, db: DbSession):
     rows = ExamService.list_papers(db, current_user)
@@ -34,9 +44,14 @@ def create_exam(params: ExamCreate, current_user: CurrentUser, db: DbSession):
     return success(data=data.model_dump(by_alias=True), msg="考试已发布")
 
 
-@router.post("/{paperId}/start", summary="学员进入或继续考试")
-def start_exam(current_user: CurrentUser, db: DbSession, paperId: int = Path(..., ge=1)):
-    data = ExamService.start(db, current_user, paperId)
+@router.post("/{paperId}/start", summary="学员进入或继续考试（支持重考）")
+def start_exam(
+    current_user: CurrentUser,
+    db: DbSession,
+    paperId: int = Path(..., ge=1),
+    retake: bool = Query(False, description="是否开启重考新轮次"),
+):
+    data = ExamService.start(db, current_user, paperId, retake=retake)
     return success(data=data.model_dump(by_alias=True))
 
 
@@ -67,6 +82,17 @@ def hand_in(
 def collect(current_user: CurrentUser, db: DbSession, paperId: int = Path(..., ge=1)):
     data = ExamService.collect(db, current_user, paperId)
     return success(data=data, msg=data.get("message") or "已收卷")
+
+
+@router.post("/{paperId}/students/{studentId}/reset", summary="重置学员的超时未作答空白卷")
+def reset_attempt(
+    current_user: CurrentUser,
+    db: DbSession,
+    paperId: int = Path(..., ge=1),
+    studentId: int = Path(..., ge=1),
+):
+    data = ExamService.reset_attempt(db, current_user, paperId, studentId)
+    return success(data=data, msg=data.get("message") or "已重置")
 
 
 @router.get("/{paperId}/grades", summary="导出成绩")

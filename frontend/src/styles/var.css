@@ -251,7 +251,7 @@ a {
 
 /* 表格：更干净的表头与发丝分隔 */
 .el-table th.el-table__cell {
-  background: #fafafa;
+  background: var(--hy-c-fill, #fafafa);
   font-weight: 600;
   color: var(--ap-l-text-2);
 }
@@ -338,4 +338,63 @@ html[data-theme='dark'] {
   --ap-fill: rgba(255, 255, 255, 0.06);
   --ap-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   --ap-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5);
+
+  /* 内容页旧令牌的深色值 */
+  --hy-risk-red-bg: rgba(245, 63, 63, 0.16);
+  --hy-risk-yellow-bg: rgba(255, 125, 0, 0.16);
+  --hy-risk-green-bg: rgba(0, 180, 42, 0.16);
+  --hy-work-bg: #0f1116;
+  --hy-light-bg: #0f1116;
+  --hy-light-card: #1a1d24;
+  --hy-light-border: rgba(255, 255, 255, 0.08);
+  --hy-light-text: #e5e7eb;
+  --hy-light-text-sub: #9aa3b0;
+  --ap-l-bg: #0f1116;
+  --ap-l-card: #1a1d24;
+  --ap-l-text: #e5e7eb;
+  --ap-l-text-2: #9aa3b0;
+  --ap-l-hairline: rgba(255, 255, 255, 0.08);
+  --ap-l-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px rgba(0, 0, 0, 0.35);
+
+  /*
+   * 页面语义令牌：只在深色下定义。
+   * 组件里写成 var(--hy-c-text, #1d2129)，浅色时变量不存在，直接用括号里的原值，
+   * 所以浅色界面和改造前逐像素一致。
+   */
+  --hy-c-page: #0f1116;
+  --hy-c-surface: #1a1d24;
+  --hy-c-fill: rgba(255, 255, 255, 0.04);
+  --hy-c-fill-2: rgba(255, 255, 255, 0.08);
+  --hy-c-glass: rgba(26, 29, 36, 0.72);
+  --hy-c-text: #e5e7eb;
+  --hy-c-text-2: #b4bcc8;
+  --hy-c-text-3: #8b93a1;
+  --hy-c-text-4: #5f6673;
+  --hy-c-border: rgba(255, 255, 255, 0.08);
+  --hy-c-border-strong: rgba(255, 255, 255, 0.14);
+  --hy-c-primary-soft: rgba(59, 130, 246, 0.16);
+  --hy-c-success-soft: rgba(0, 180, 42, 0.14);
+  --hy-c-warning-soft: rgba(255, 125, 0, 0.14);
+  --hy-c-danger-soft: rgba(245, 63, 63, 0.14);
+}
+
+/* Element Plus 深色：主色沿用 #2563eb，派生色按深底重新混色 */
+html.dark {
+  --el-color-primary: #3b82f6;
+  --el-color-primary-light-3: #2f68c5;
+  --el-color-primary-light-5: #264f93;
+  --el-color-primary-light-7: #1d3762;
+  --el-color-primary-light-8: #192b49;
+  --el-color-primary-light-9: #141f31;
+  --el-color-primary-dark-2: #629bf8;
+  --el-bg-color: #1a1d24;
+  --el-bg-color-overlay: #1f232b;
+  --el-bg-color-page: #0f1116;
+  --el-box-shadow-light: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+html.dark .el-overlay {
+  background-color: rgba(0, 0, 0, 0.5);
+}
+html.dark .portal-main .el-table .el-scrollbar__bar.is-horizontal .el-scrollbar__thumb {
+  background-color: rgba(255, 255, 255, 0.3);
 }

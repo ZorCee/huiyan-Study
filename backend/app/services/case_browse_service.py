@@ -292,7 +292,7 @@ def _to_item(
         updated_at=case.updated_at,
     )
 
-    # ============ 盲训内容策略：作答前不下发答案型字段 ============
+    # ============ 盲盒内容策略：作答前不下发答案型字段 ============
     mode = _blind_mode_for(viewer, answered)
     return CaseBrowseItem(**redact(item.model_dump(), mode, case_no=case.case_no))
 
@@ -339,7 +339,16 @@ def _to_detail(
     # base 已裁剪，此处再裁剪一次以覆盖 detail 独有的答案字段
     # （gold_diagnosis / teaching_points）
     mode = _blind_mode_for(viewer, answered)
-    return CaseBrowseDetail(**redact(detail.model_dump(), mode, case_no=case.case_no))
+    out = CaseBrowseDetail(**redact(detail.model_dump(), mode, case_no=case.case_no))
+    # 结论含 AI 建议值和来源，只给教学人员
+    if db is not None and teaching_staff(role_code):
+        from app.services import case_findings
+        findings = case_findings.list_findings(db, case)
+        out.findings = findings
+        out.finding_conflicts = case_findings.conflicts(findings, case.title or "")
+        from app.services import case_quality
+        out.quality_summary = case_quality.case_summary(db, case)
+    return out
 
 
 def _scope_query(db: Session, user: User):
@@ -401,7 +410,11 @@ class CaseBrowseService:
             q = q.outerjoin(User, User.id == TrainingCase.creator_id).filter(or_(*clauses))
 
         if query.category:
-            q = q.filter(TrainingCase.category == query.category)
+            q = q.filter(case_findings.disease_clause(db, query.category))
+
+        if query.quality_level:
+            from app.services import case_quality
+            q = case_quality.filter_by_level(q, query.quality_level)
 
         if query.dr_level is not None:
             q = q.filter(TrainingCase.gold_dr_grade == str(query.dr_level))
@@ -446,7 +459,7 @@ class CaseBrowseService:
             .all()
         )
 
-        # 批量取每条病例的影像数 + 完整性，避免 N+1 后再循环查
+        # 批量取多条病例的影像数 + 完整性，避免 N+1 后再循环查
         ids = [c.id for c in rows]
         count_map: dict = {}
         derived_map: dict = {}
@@ -636,10 +649,14 @@ class CaseBrowseService:
             )
 
         if not case.is_train_case:
-            case.is_train_case = True
-            # 默认同步置为已发布，确保学员实际可见（可视具体业务调整）
+            # 不再顺带发布：未发布说明金标准仍是草稿，直接开放会让学员看到草稿答案。
+            # 需先在「完善金标准」里发布，或直接用「发布并加入实训」。
             if not case.is_published:
-                case.is_published = True
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="该病例金标准尚未发布，请先在「完善金标准」中发布后再开放给学员练习",
+                )
+            case.is_train_case = True
             case.updated_at = datetime.now()
             db.commit()
             db.refresh(case)
@@ -751,7 +768,45 @@ class CaseBrowseService:
         if params.gold_lesions is not None:
             case.gold_lesions = params.gold_lesions
 
+        from app.services import case_findings
+
+        if params.findings is not None:
+            for item in params.findings:
+                disease = (item.disease or "").strip().upper()
+                value = (item.value or "").strip().upper()
+                if disease not in case_findings.DISEASES:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"不支持的病种：{item.disease}",
+                    )
+                if value and not case_findings.valid_value(disease, value):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"{case_findings.DISEASES[disease]['label']}的结论取值不合法",
+                    )
+                case_findings.upsert(
+                    db, case.id, disease, value=value or None, source="MANUAL",
+                    keep_ai=True, confirmed_by=user.id,
+                )
+                if disease == "DR":
+                    case.gold_dr_grade = value
+        elif params.gold_dr_grade is not None:
+            # 旧前端只传 gold_dr_grade：同步成人工来源的 DR 结论
+            case_findings.upsert(
+                db, case.id, "DR", value=case.gold_dr_grade or None, source="MANUAL",
+                keep_ai=True, confirmed_by=user.id,
+            )
+
         if params.publish:
+            # 发布即视为教师已复核：残留的 AI 来源结论记为人工
+            from app.db.models import CaseFinding
+            for row in db.query(CaseFinding).filter(
+                CaseFinding.case_id == case.id, CaseFinding.source == "AI",
+            ):
+                row.source = "MANUAL"
+                row.confirmed_by = user.id
+                row.confirmed_at = datetime.now()
+
             if not (case.gold_diagnosis or "").strip():
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,

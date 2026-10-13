@@ -66,7 +66,7 @@ const goTraining = () => router.push('/training')
         <el-avatar
           :size="collapsed ? 32 : 40"
           :src="userInfo.avatar"
-          style="background:#eef4ff;color:#1677ff"
+          style="background:var(--hy-c-primary-soft, #eef4ff);color:#1677ff"
         >
           {{ displayName.charAt(0) }}
         </el-avatar>
@@ -92,7 +92,7 @@ const goTraining = () => router.push('/training')
         </el-menu-item>
         <el-menu-item index="/screening/list">
           <el-icon><search /></el-icon>
-          <template #title>病例检索</template>
+          <template #title>筛查记录检索</template>
         </el-menu-item>
         <el-menu-item index="/screening/profile">
           <el-icon><user /></el-icon>

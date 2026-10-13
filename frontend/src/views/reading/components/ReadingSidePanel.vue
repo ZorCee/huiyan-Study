@@ -13,6 +13,7 @@ import ReviewPresetChips from './ReviewPresetChips.vue'
 import { EXCELLENT_PASS_COMMENT, appendReviewComment } from '../review-presets'
 
 const LESION_LEGEND = [
+  // 颜色与 @/utils/lesion-colors.ts 及后端 LESION_COLORS 保持一致
   { key: 'HE', name: '视网膜出血', color: '#f53f3f' },
   { key: 'EX', name: '硬性渗出', color: '#ffd700' },
   { key: 'SE', name: '软性渗出/棉绒斑', color: '#52c41a' },
@@ -625,7 +626,7 @@ const passAsExcellent = () => {
   padding: 4px 12px 12px;
 }
 .advanced-fold :deep(.el-collapse-item__arrow) {
-  color: #9aa1af;
+  color: var(--hy-c-text-3, #9aa1af);
 }
 .measure-title {
   margin-top: 12px;
@@ -693,7 +694,7 @@ const passAsExcellent = () => {
 }
 .legend-code {
   font-size: 10px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-family: monospace;
 }
 </style>

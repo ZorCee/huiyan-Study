@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import and_, desc, func, or_
+from sqlalchemy import case as sa_case
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -904,31 +905,36 @@ class ScreeningService:
             .scalar()
         ) or 0
 
-        # risk 聚合：按 case 范围限制（避免「队列」统计也算上历史病例）
-        risk_q = db.query(ScreeningResult).join(
-            ScreeningCase, ScreeningResult.case_id == ScreeningCase.id,
-        )
-        if case_filter is not None:
-            risk_q = risk_q.filter(case_filter)
-
-        red: int = (
-            risk_q.with_entities(func.count(func.distinct(ScreeningResult.case_id)))
-            .filter(ScreeningResult.risk_level.in_([
+        # 分级：每个病例只取其所有结果中的最高风险等级计入一档，
+        # 保证 red + yellow + green == 有分级结果的病例数（左右眼不同不会重复计数）。
+        risk_weight = sa_case(
+            (ScreeningResult.risk_level.in_([
                 RiskLevelEnum.HIGH.value,
                 RiskLevelEnum.URGENT.value,
-            ]))
-            .scalar()
-        ) or 0
-        yellow: int = (
-            risk_q.with_entities(func.count(func.distinct(ScreeningResult.case_id)))
-            .filter(ScreeningResult.risk_level == RiskLevelEnum.MEDIUM.value)
-            .scalar()
-        ) or 0
-        green: int = (
-            risk_q.with_entities(func.count(func.distinct(ScreeningResult.case_id)))
-            .filter(ScreeningResult.risk_level == RiskLevelEnum.LOW.value)
-            .scalar()
-        ) or 0
+            ]), 3),
+            (ScreeningResult.risk_level == RiskLevelEnum.MEDIUM.value, 2),
+            (ScreeningResult.risk_level == RiskLevelEnum.LOW.value, 1),
+            else_=0,
+        )
+        per_case_q = (
+            db.query(
+                ScreeningResult.case_id.label("case_id"),
+                func.max(risk_weight).label("w"),
+            )
+            .join(ScreeningCase, ScreeningResult.case_id == ScreeningCase.id)
+        )
+        if case_filter is not None:
+            per_case_q = per_case_q.filter(case_filter)
+        per_case = per_case_q.group_by(ScreeningResult.case_id).subquery()
+
+        weight_counts = dict(
+            db.query(per_case.c.w, func.count())
+            .group_by(per_case.c.w)
+            .all()
+        )
+        red: int = int(weight_counts.get(3, 0) or 0)
+        yellow: int = int(weight_counts.get(2, 0) or 0)
+        green: int = int(weight_counts.get(1, 0) or 0)
 
         today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         week_start = today_start - timedelta(days=7)

@@ -119,7 +119,7 @@ const goExternal = () => {
   >
     <div v-if="resource" class="preview-body">
       <div class="meta-line">
-        <el-tag size="small" type="primary">{{ resource.resourceTypeText }}</el-tag>
+        <el-tag size="small" type="warning">{{ LearningApi.resourceTypeLabel(resource.resourceType, resource.resourceTypeText) }}</el-tag>
         <el-tag size="small" effect="plain">浏览 {{ resource.viewCount }}</el-tag>
         <!-- 同 ResourceCard：这个收藏标签也做成可点，底部按钮保留 -->
         <el-tag
@@ -229,7 +229,7 @@ const goExternal = () => {
 .publisher {
   margin-left: 6px;
   font-size: 13px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
 }
 .tags {
   display: flex;
@@ -237,22 +237,22 @@ const goExternal = () => {
   flex-wrap: wrap;
 }
 .summary {
-  background: #f5f7fa;
+  background: var(--hy-c-fill, #f5f7fa);
   border-radius: 6px;
   padding: 10px 12px;
   font-size: 13px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   line-height: 1.6;
 }
 .preview-area {
   min-height: 200px;
-  border: 1px solid #e5e6eb;
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 6px;
   padding: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #fafbfc;
+  background: var(--hy-c-fill, #fafbfc);
 }
 .video {
   width: 100%;
@@ -289,12 +289,12 @@ const goExternal = () => {
 }
 .file-hint {
   font-size: 13px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
 }
 .content-html {
   width: 100%;
   font-size: 14px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   line-height: 1.7;
   white-space: pre-wrap;
 }

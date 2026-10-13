@@ -315,7 +315,7 @@ const handleSave = async () => {
 
 <style scoped>
 .bind-line {
-  background: #eef4ff;
+  background: var(--hy-c-primary-soft, #eef4ff);
   color: #1677ff;
   font-size: 12px;
   padding: 6px 10px;
@@ -329,10 +329,10 @@ const handleSave = async () => {
   gap: 10px;
 }
 .table-card {
-  border: 1px solid #e5e6eb;
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 6px;
   padding: 8px;
-  background: #fafbfc;
+  background: var(--hy-c-fill, #fafbfc);
 }
 .table-toolbar {
   display: flex;
@@ -344,7 +344,7 @@ const handleSave = async () => {
   margin-right: auto;
   font-size: 13px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .table-scroll {
   overflow-x: auto;
@@ -355,10 +355,10 @@ const handleSave = async () => {
 }
 .edit-table th,
 .edit-table td {
-  border: 1px solid #e5e6eb;
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   padding: 4px;
   vertical-align: top;
-  background: #fff;
+  background: var(--hy-c-surface, #fff);
 }
 .cell-head {
   display: flex;
@@ -367,7 +367,7 @@ const handleSave = async () => {
 }
 .row-ops {
   width: 52px;
-  background: #fafbfc;
+  background: var(--hy-c-fill, #fafbfc);
   border: none !important;
 }
 .insert-btn {

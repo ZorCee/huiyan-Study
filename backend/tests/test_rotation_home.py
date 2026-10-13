@@ -304,3 +304,54 @@ def test_recommend_by_year_or_group_and_keep_order(db):
     ))
     again = [row.case_id for row in flipped.tasks if row.case_id in (mild.id, severe.id)]
     assert again[0] == mild.id
+
+
+def test_weak_detail_drilldown_and_snap_fields(db):
+    admin, student = _users(db)
+    student.study_year = "2024级"
+    student.rotation_batch = "2026春"
+    student.mentor_group = "眼底一组"
+    case = _case(db, admin, title="测试糖网病例")
+    db.commit()
+
+    RotationService.home(db, student)
+    session = PracticeSession(
+        user_id=student.id,
+        case_id=case.id,
+        mode="SELECTED",
+        status="SUBMITTED",
+        attempt_kind="PRACTICE",
+        score_total=75.0,
+        error_points=[
+            {"label": "硬性渗出", "type": "missed", "note": "漏诊硬性渗出 1 处"},
+            {"label": "视盘", "type": "false_positive", "note": "误诊视盘 1 处"},
+        ],
+    )
+    db.add(session)
+    db.commit()
+
+    home = RotationService.home(db, admin)
+    student_progress = next(s for s in home.students if s.user_id == student.id)
+    case_snap = next(t for t in student_progress.tasks if t.case_id == case.id)
+    assert case_snap.case_id == case.id
+    assert case_snap.session_id == session.id
+    assert case_snap.score == 75.0
+
+    # 测试按组与病灶下钻
+    details = RotationService.weak_detail(
+        db, admin, study_year="2024级", mentor_group="眼底一组", label="硬性渗出", error_type="missed",
+    )
+    assert len(details) == 1
+    assert details[0].session_id == session.id
+    assert details[0].case_no == case.case_no
+    assert details[0].student_name == "学员甲"
+    assert details[0].error_type == "missed"
+    assert "硬性渗出" in details[0].note
+
+    # 测试按学员下钻
+    stu_details = RotationService.weak_detail(
+        db, admin, user_id=student.id, label="视盘", error_type="false_positive",
+    )
+    assert len(stu_details) == 1
+    assert stu_details[0].case_id == case.id
+    assert stu_details[0].error_type == "false_positive"

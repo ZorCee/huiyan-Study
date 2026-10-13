@@ -58,14 +58,14 @@ const joinDisabled = computed(() => {
   if (props.data.archiveStatus === 'ARCHIVED' && !joinedHere.value) return true
   return false
 })
-const joinButtonText = computed(() => (joinedHere.value ? '取消加入实训' : '加入实训'))
+const joinButtonText = computed(() => (joinedHere.value ? '停止开放' : '开放给全体学员练习'))
 
 /* 转交父级真正发请求；父级在 store 上更新 loading / joined 状态，
    弹窗只读取 store —— 反馈即时同步，不重复发请求。 */
 const onJoin = () => {
   if (!props.data) return
   if (props.data.archiveStatus === 'ARCHIVED') {
-    ElMessage.warning('该病例已归档，无法加入实训')
+    ElMessage.warning('该病例已归档，无法开放给学员练习')
     return
   }
   if (joiningHere.value) return
@@ -362,7 +362,7 @@ const saveSubject = async () => {
 .title {
   font-size: 16px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .meta-line {
   display: flex;
@@ -376,7 +376,7 @@ const saveSubject = async () => {
 }
 .materials-note {
   margin: 0 0 16px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   font-size: 14px;
   line-height: 1.6;
 }
@@ -390,7 +390,7 @@ const saveSubject = async () => {
 .visit-list {
   margin: 0 0 10px;
   padding-left: 18px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   line-height: 1.8;
 }
 .visit-form {
@@ -408,7 +408,7 @@ const saveSubject = async () => {
 }
 .thumb-title {
   font-size: 13px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   margin-bottom: 8px;
 }
 .thumb-grid {
@@ -421,8 +421,8 @@ const saveSubject = async () => {
   border-radius: 8px;
   overflow: hidden;
   cursor: pointer;
-  background: #f5f6fa;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-fill, #f5f6fa);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   transition: 0.2s;
   position: relative;
 }
@@ -436,7 +436,7 @@ const saveSubject = async () => {
   justify-content: center;
   font-weight: 600;
   color: #1677ff;
-  background: #eef4ff;
+  background: var(--hy-c-primary-soft, #eef4ff);
 }
 .thumb-fallback {
   width: 100%;
@@ -444,13 +444,13 @@ const saveSubject = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f5f6fa;
-  color: #c9cdd4;
+  background: var(--hy-c-fill, #f5f6fa);
+  color: var(--hy-c-text-4, #c9cdd4);
   font-size: 24px;
 }
 
 .muted {
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 13px;
 }
 
@@ -461,20 +461,20 @@ const saveSubject = async () => {
 }
 .case-sn {
   font-family: 'Consolas', 'Monaco', monospace;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 12px;
   margin-left: 6px;
 }
 .phone-text {
   font-family: 'Consolas', 'Monaco', monospace;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   font-weight: 500;
 }
 
 .empty {
   padding: 40px 0;
   text-align: center;
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
   display: flex;
   flex-direction: column;
   align-items: center;

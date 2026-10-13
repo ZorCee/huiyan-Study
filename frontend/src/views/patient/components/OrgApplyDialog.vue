@@ -97,12 +97,12 @@ const onSubmit = async () => {
             :value="o.id"
           >
             <span style="float: left">{{ o.name }}</span>
-            <span v-if="o.category" style="float: right; color: #86909c; font-size: 12px">
+            <span v-if="o.category" style="float: right; color: var(--hy-c-text-3, #86909c); font-size: 12px">
               {{ o.category }}
             </span>
           </el-option>
           <template #empty>
-            <div style="padding: 12px; color: #c9cdd4; text-align: center; font-size: 13px">
+            <div style="padding: 12px; color: var(--hy-c-text-4, #c9cdd4); text-align: center; font-size: 13px">
               暂无可选机构，请联系管理员开通
             </div>
           </template>

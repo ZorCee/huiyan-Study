@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -23,7 +23,9 @@ import {
 import { useUserStore } from '@/stores/user'
 import { useLogout } from '@/composables/useLogout'
 import { triggerLoginNoticePopup } from '@/utils/login-notice'
-import { CommonApi, ExamApi, ReadingApi } from '@/api'
+import { CommonApi, ExamApi } from '@/api'
+import { usePendingReviewCount } from '@/composables/usePendingReviewCount'
+import { inboxSignalTick } from '@/composables/useInboxSignals'
 
 const router = useRouter()
 const route = useRoute()
@@ -39,22 +41,13 @@ const isTeacher = computed(() => userStore.isAdmin || userStore.isDoctor)
 const isStudent = computed(() => userStore.isTrainee)
 
 /** 教师/管理员待批改数。学员不请求、不展示。 */
-const pendingReviewCount = ref(0)
+const { pendingReviewCount, refreshPendingReviewCount } = usePendingReviewCount()
 const unreadNoticeCount = ref(0)
 const openExamCount = ref(0)
 
 const loadPendingReviews = async () => {
   if (!isTeacher.value) return
-  try {
-    const page = await ReadingApi.getReadingList({
-      status: 'SUBMITTED',
-      page: 1,
-      pageSize: 1
-    })
-    pendingReviewCount.value = Number(page?.total) || 0
-  } catch {
-    pendingReviewCount.value = 0
-  }
+  await refreshPendingReviewCount()
 }
 
 const loadInboxSignals = async () => {
@@ -71,7 +64,10 @@ const loadInboxSignals = async () => {
   try {
     const rows = (await ExamApi.listExams()) || []
     openExamCount.value = rows.filter(
-      (paper) => paper.status === 'OPEN' && paper.mineStatus !== 'HANDED'
+      (paper) =>
+        paper.status === 'OPEN' &&
+        paper.mineStatus !== 'HANDED' &&
+        paper.mineStatus !== 'TIMEOUT_BLANK'
     ).length
   } catch {
     openExamCount.value = 0
@@ -89,9 +85,26 @@ onMounted(() => {
   loadPendingReviews()
   loadInboxSignals()
   window.setTimeout(() => triggerLoginNoticePopup(), 200)
+  window.addEventListener('focus', onWindowFocus)
 })
 
+onBeforeUnmount(() => {
+  window.removeEventListener('focus', onWindowFocus)
+})
+
+const onWindowFocus = () => {
+  if (!userStore.canAccessTraining) return
+  loadPendingReviews()
+  loadInboxSignals()
+}
+
 watch(() => route.fullPath, () => {
+  if (!userStore.canAccessTraining) return
+  loadPendingReviews()
+  loadInboxSignals()
+})
+
+watch(inboxSignalTick, () => {
   if (!userStore.canAccessTraining) return
   loadInboxSignals()
 })
@@ -104,21 +117,20 @@ const activeMenu = computed(() => {
   // 阅片工作站可能带 caseId 等参数，用 path 即可命中前缀
   if (route.path.startsWith('/training/home')) return '/training/home'
   if (route.path.startsWith('/training/reading')) {
-    if (isTeacher.value && String(route.query.tab || '') === 'quality') {
-      return '/training/reading?tab=quality'
+    const tab = String(route.query.tab || '')
+    if (isTeacher.value && (tab === 'review' || tab === 'quality')) {
+      return '/training/reading?tab=review'
     }
     return '/training/reading'
   }
-  // 病例中心含检索、建案、分享。/training/cases?tab=ai-builder 仍高亮「病例中心」。
+  // 病例中心含检索和 AI 建案。/training/cases?tab=ai-builder 仍高亮「病例中心」。
   if (/^\/training\/cases(?:\/|$)/.test(route.path)) return '/training/cases'
-  if (
-    route.path.startsWith('/training/ai-builder')
-    || route.path.startsWith('/training/teaching-share')
-  ) {
-    return '/training/cases'
-  }
+  if (route.path.startsWith('/training/ai-builder')) return '/training/cases'
+  if (route.path.startsWith('/training/teaching-share')) return '/training/teaching-share'
+  if (route.path.startsWith('/training/screening')) return '/training/screening'
   if (route.path.startsWith('/training/practice')) return '/training/practice'
   if (route.path.startsWith('/training/learning')) return '/training/learning'
+  if (route.path.startsWith('/training/admin-notes')) return '/training/admin-notes'
   if (route.path.startsWith('/training/admin')) return '/training/admin'
   if (route.path.startsWith('/training/profile')) return '/training/profile'
   if (route.path.startsWith('/training/notices')) return '/training/notices'
@@ -165,7 +177,7 @@ const roleBadge = computed(() => {
         text-color="#c4cad4"
         active-text-color="#ffffff"
         :default-active="activeMenu"
-        :default-openeds="['study-personal']"
+        :default-openeds="['teaching', 'case-imaging', 'manage-settings', 'study-personal']"
         :collapse="collapsed"
         :collapse-transition="false"
         router
@@ -175,49 +187,80 @@ const roleBadge = computed(() => {
           <template #title>{{ isStudent ? '今日学习' : '教学看板' }}</template>
         </el-menu-item>
 
-        <!-- 教师 / 管理员：4 个一级带教入口 + 1 个默认收起的教务菜单。学员不渲染。 -->
+        <!-- 教师 / 管理员：教学 / 病例与影像 / 管理与设置，三组默认展开，主要功能一次点击可达。学员不渲染。 -->
         <template v-if="isTeacher">
-          <el-menu-item index="/training/reading?tab=quality">
-            <el-icon><tickets /></el-icon>
+          <el-sub-menu index="teaching">
             <template #title>
-              <span class="review-menu-title">
-                作业批阅
-                <el-badge
-                  v-if="pendingReviewCount > 0"
-                  :value="pendingReviewCount"
-                  :max="99"
-                  class="review-menu-badge"
-                />
-              </span>
+              <el-icon><promotion /></el-icon>
+              <span>教学</span>
             </template>
-          </el-menu-item>
-          <el-menu-item index="/training/reading">
-            <el-icon><Monitor /></el-icon>
-            <template #title>双眼阅片工作台</template>
-          </el-menu-item>
-          <el-menu-item index="/training/cases">
-            <el-icon><folder /></el-icon>
-            <template #title>病例中心</template>
-          </el-menu-item>
-          <el-sub-menu index="teaching-affairs">
-            <template #title>
-              <el-icon><notebook /></el-icon>
-              <span>教学事务管理</span>
-            </template>
-            <el-menu-item index="/training/class">
-              <el-icon><user /></el-icon>
-              <template #title>班级与学员维护</template>
+            <el-menu-item index="/training/reading?tab=review">
+              <el-icon><tickets /></el-icon>
+              <template #title>
+                <span
+                  class="review-menu-title"
+                  title="审核学员提交的阅片和质控作业，给出通过或驳回"
+                >
+                  作业批阅
+                  <el-badge
+                    v-if="pendingReviewCount > 0"
+                    :value="pendingReviewCount"
+                    :max="99"
+                    class="review-menu-badge"
+                  />
+                </span>
+              </template>
             </el-menu-item>
             <el-menu-item index="/training/exams">
               <el-icon><notebook /></el-icon>
               <template #title>正式考核与试卷</template>
             </el-menu-item>
+            <el-menu-item index="/training/teaching-share">
+              <el-icon><promotion /></el-icon>
+              <template #title>
+                <span title="上传教学资料，给指定学员发临时分享">教学分享</span>
+              </template>
+            </el-menu-item>
+          </el-sub-menu>
+          <el-sub-menu index="case-imaging">
+            <template #title>
+              <el-icon><folder /></el-icon>
+              <span>病例与影像</span>
+            </template>
+            <el-menu-item index="/training/cases">
+              <el-icon><folder /></el-icon>
+              <template #title>病例中心</template>
+            </el-menu-item>
+            <el-menu-item index="/training/reading">
+              <el-icon><Monitor /></el-icon>
+              <template #title>双眼阅片工作台</template>
+            </el-menu-item>
             <el-menu-item
               v-if="userStore.canAccessScreening"
-              index="/screening"
+              index="/training/screening"
             >
               <el-icon><upload /></el-icon>
               <template #title>AI 批量筛查</template>
+            </el-menu-item>
+          </el-sub-menu>
+          <el-sub-menu index="manage-settings">
+            <template #title>
+              <el-icon><setting /></el-icon>
+              <span>管理与设置</span>
+            </template>
+            <el-menu-item index="/training/class">
+              <el-icon><user /></el-icon>
+              <template #title>班级与学员维护</template>
+            </el-menu-item>
+            <el-menu-item v-if="isAdmin" index="/training/admin">
+              <el-icon><setting /></el-icon>
+              <template #title>平台管理后台</template>
+            </el-menu-item>
+            <el-menu-item v-if="isAdmin" index="/training/admin-notes">
+              <el-icon><tickets /></el-icon>
+              <template #title>
+                <span title="只读查看全部用户的笔记，访问会被记录">笔记管理（审核视图）</span>
+              </template>
             </el-menu-item>
           </el-sub-menu>
         </template>
@@ -226,11 +269,11 @@ const roleBadge = computed(() => {
         <el-menu-item-group v-if="isStudent" title="病例">
           <el-menu-item index="/training/cases">
             <el-icon><folder /></el-icon>
-            <template #title>病例库</template>
+            <template #title>病例中心</template>
           </el-menu-item>
           <el-menu-item index="/training/reading">
             <el-icon><Monitor /></el-icon>
-            <template #title>阅片工作台</template>
+            <template #title>双眼阅片工作台</template>
           </el-menu-item>
         </el-menu-item-group>
 
@@ -257,14 +300,6 @@ const roleBadge = computed(() => {
           <el-menu-item index="/training/my-reviews">
             <el-icon><tickets /></el-icon>
             <template #title>教师评定</template>
-          </el-menu-item>
-        </el-menu-item-group>
-
-        <!-- 管理员 · 平台管理 -->
-        <el-menu-item-group v-if="isAdmin" title="管理员">
-          <el-menu-item index="/training/admin">
-            <el-icon><setting /></el-icon>
-            <template #title>平台管理后台</template>
           </el-menu-item>
         </el-menu-item-group>
 
@@ -438,7 +473,7 @@ const roleBadge = computed(() => {
 }
 .brand-sub {
   font-size: 11px;
-  color: #8f95a3;
+  color: var(--hy-c-text-3, #8f95a3);
   letter-spacing: 2.5px;
   margin-top: 3px;
   font-weight: 500;
@@ -476,12 +511,12 @@ const roleBadge = computed(() => {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 1.2px;
-  color: #7b8392 !important;
+  color: var(--hy-c-text-3, #7b8392) !important;
   background: transparent !important;
 }
 .aside-menu :deep(.el-sub-menu__title .el-icon),
 .aside-menu :deep(.el-sub-menu__icon-arrow) {
-  color: #9aa1af !important;
+  color: var(--hy-c-text-3, #9aa1af) !important;
 }
 .aside-menu :deep(.el-sub-menu__title:hover) {
   background: rgba(255, 255, 255, 0.08) !important;
@@ -493,17 +528,17 @@ const roleBadge = computed(() => {
 }
 .aside-menu :deep(.el-sub-menu.is-active > .el-sub-menu__title) {
   background: transparent !important;
-  color: #7b8392 !important;
+  color: var(--hy-c-text-3, #7b8392) !important;
 }
 .aside-menu :deep(.el-sub-menu.is-active > .el-sub-menu__title .el-icon) {
-  color: #9aa1af !important;
+  color: var(--hy-c-text-3, #9aa1af) !important;
 }
 .aside-menu :deep(.el-menu-item-group__title) {
   padding: 16px 20px 6px;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 1.2px;
-  color: #7b8392 !important;
+  color: var(--hy-c-text-3, #7b8392) !important;
 }
 /* 收起时：隐藏分组标题 + 图标水平居中 */
 .aside-menu.el-menu--collapse :deep(.el-menu-item-group__title) {
@@ -539,7 +574,7 @@ const roleBadge = computed(() => {
   transition: background 0.2s var(--ap-ease), color 0.2s var(--ap-ease);
 }
 .aside-menu :deep(.el-menu-item .el-icon) {
-  color: #9aa1af !important;
+  color: var(--hy-c-text-3, #9aa1af) !important;
   transition: color 0.2s var(--ap-ease);
 }
 .aside-menu :deep(.el-menu-item:hover) {
@@ -584,7 +619,7 @@ const roleBadge = computed(() => {
   line-height: 18px;
   padding: 0 6px;
   border-radius: 11px;
-  border: 2px solid #ffffff !important;
+  border: 2px solid var(--hy-c-surface, #ffffff) !important;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
   font-size: 14px;
   font-weight: 800;
@@ -634,14 +669,14 @@ const roleBadge = computed(() => {
 }
 .au-role {
   font-size: calc(12px * var(--hy-font-scale, 1));
-  color: #8f95a3;
+  color: var(--hy-c-text-3, #8f95a3);
   margin-top: 1px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .au-more {
-  color: #8f95a3;
+  color: var(--hy-c-text-3, #8f95a3);
   font-size: 15px;
   flex-shrink: 0;
 }
@@ -654,7 +689,7 @@ const roleBadge = computed(() => {
   flex-shrink: 0;
   border: none;
   background: transparent;
-  color: #9aa1af;
+  color: var(--hy-c-text-3, #9aa1af);
   border-radius: 9px;
   cursor: pointer;
   transition: background 0.2s var(--ap-ease), color 0.2s var(--ap-ease);
@@ -680,7 +715,7 @@ const roleBadge = computed(() => {
   background: var(--hy-work-bg, #edf1f6);
 }
 .portal.tone-slate .portal-main {
-  background: #edf1f6;
+  background: var(--hy-c-page, #edf1f6);
 }
 .portal-main :deep(> *) {
   min-height: 100% !important;
@@ -725,7 +760,7 @@ const roleBadge = computed(() => {
   background: transparent !important;
 }
 .portal-aside-popper .el-menu-item .el-icon {
-  color: #9aa1af !important;
+  color: var(--hy-c-text-3, #9aa1af) !important;
 }
 .portal-aside-popper .el-menu-item:hover {
   background: rgba(255, 255, 255, 0.08) !important;

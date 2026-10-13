@@ -308,6 +308,8 @@ export interface QualityCheckResult {
   /** 学员提交后为 SUBMITTED，教师通过后才是 REVIEWED */
   reviewStatus?: string
   readingId?: number | null
+  /** 本病例的质控结论（只统计本病例） */
+  caseSummary?: QualityCaseSummary
   items: Array<{
     imageId: number
     quality: string
@@ -322,6 +324,48 @@ export interface QualityCheckResult {
  */
 export const checkImageQuality = (caseId: number) =>
   http.post<QualityCheckResult>(`/reading/cases/${caseId}/quality-check`)
+
+export type QualityVerdict = 'pass' | 'incomplete' | 'unchecked' | 'ungradable' | 'empty'
+
+export interface QualityCaseSummary {
+  verdict: QualityVerdict
+  verdictText: string
+  total: number
+  evaluated: number
+  ungradable: number
+  lastCheckedAt: string | null
+}
+
+export interface QualityResultItem {
+  imageId: number
+  index: number
+  url: string
+  fileName: string
+  eye: string
+  eyeText: string
+  quality: 'good' | 'usable' | 'poor' | 'ungradable' | 'unknown'
+  qualityText: string
+  confidence: number
+  probabilities: Array<{ level: string; label: string; value: number }>
+  modelName: string
+  durationMs: number
+  checkedAt: string | null
+  evaluated: boolean
+  error: string
+  /** null 表示未评估，不能当作可判读 */
+  gradable: boolean | null
+  advice: string
+}
+
+export interface QualityCaseResult {
+  caseId: number
+  summary: QualityCaseSummary
+  items: QualityResultItem[]
+}
+
+/** 读取已保存的图像质控结果，不重新调用算法 */
+export const getImageQualityResult = (caseId: number) =>
+  http.get<QualityCaseResult>(`/reading/cases/${caseId}/quality-result`)
 
 /** 当前眼底图的出血 / 硬性渗出 / 软性渗出分割。只给带教和管理员。 */
 export interface LesionSegResult {
@@ -364,6 +408,66 @@ export const aiPredict = (caseId: number, params: AiPredictParams) =>
     params,
     { showError: false },
     { timeout: 10 * 60 * 1000 }
+  )
+
+/* ============ AI算法判读：算法目录 + 统一调用 ============ */
+
+export type AiAlgorithmKey = 'multi_lesion' | 'ma_detection' | 'ocod' | 'glaucoma'
+export type AiAlgorithmStatus = 'available' | 'not_deployed' | 'unreachable'
+
+export interface AiAlgorithmItem {
+  key: AiAlgorithmKey
+  name: string
+  kind: 'segmentation' | 'classification'
+  taskType: string
+  model: string
+  endpoint: string
+  input: string
+  output: string
+  labels: string[]
+  dependency: string
+  teacherOnly: boolean
+  status: AiAlgorithmStatus
+}
+
+export interface AiAlgorithmCatalog {
+  reachable: boolean
+  message: string
+  items: AiAlgorithmItem[]
+}
+
+export interface AiRunResult {
+  status: 'done' | 'failed' | 'not_deployed'
+  algorithm: AiAlgorithmKey
+  algorithmName: string
+  kind: 'segmentation' | 'classification'
+  overlayUrl: string
+  counts: Record<string, number>
+  classification: { label: string; labelEn: string; probabilities: Record<string, number> } | null
+  metrics: {
+    verticalCdr: number | null
+    horizontalCdr: number | null
+    riskLevel: string
+    riskName: string
+    cupAreaPx: number
+    discAreaPx: number
+  } | null
+  seconds: number
+  message: string
+}
+
+export const getAiAlgorithms = () =>
+  http.get<AiAlgorithmCatalog>('/reading/ai-algorithms', undefined, { showError: false })
+
+export const runAiAlgorithm = (
+  caseId: number,
+  params: { algorithm: AiAlgorithmKey; imageUrl: string; eye?: string }
+) =>
+  http.post<AiRunResult>(
+    `/reading/cases/${caseId}/ai-run`,
+    params,
+    { showError: false },
+    { timeout: 5 * 60 * 1000 }
   )
 
 /* ============ DICOMweb：影像与分割分离（报告 P1） ============ */

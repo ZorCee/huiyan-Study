@@ -92,6 +92,22 @@ const leftEyeFile = ref<File | null>(null)
 const rightEyeFile = ref<File | null>(null)
 const eye = ref<'OD' | 'OS' | 'OU' | 'UK'>('UK')
 
+const subjectOpen = ref(false)
+const subject = reactive<{ subjectCode: string; gender: 'M' | 'F' | 'U'; age: number | null }>({
+  subjectCode: '',
+  gender: 'U',
+  age: null,
+})
+
+const formatMaCount = (n: number | null | undefined) =>
+  n === null || n === undefined ? 'MA 未返回' : String(n)
+
+const subjectTooltip = computed(() =>
+  resultData.value?.subjectSource === 'input'
+    ? '上传时录入的受检者编号'
+    : '上传时自动生成的编号，非真实姓名'
+)
+
 const previewSingle = ref('')
 const previewLeft = ref('')
 const previewRight = ref('')
@@ -188,20 +204,23 @@ const onSubmit = async () => {
         singleFile.value as File,
         eye.value,
         undefined,
-        handleProgress
+        handleProgress,
+        { ...subject }
       )
     } else if (activeType.value === 'DR') {
       res = await DiagnosisApi.diagnoseDr(
         leftEyeFile.value as File,
         rightEyeFile.value as File,
         undefined,
-        handleProgress
+        handleProgress,
+        { ...subject }
       )
     } else {
       res = await DiagnosisApi.diagnoseComprehensive(
         singleFile.value as File,
         ['ma_detection', 'dr_grading'],
-        handleProgress
+        handleProgress,
+        { ...subject }
       )
     }
     progress.percent = 100
@@ -385,6 +404,54 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
         </div>
       </div>
 
+      <!-- 受检者信息（选填）：刻意不收姓名 / 手机号 / 身份证号 -->
+      <div class="subject-box">
+        <button
+          type="button"
+          class="subject-toggle"
+          :aria-expanded="subjectOpen"
+          aria-controls="subject-fields"
+          @click="subjectOpen = !subjectOpen"
+        >
+          {{ subjectOpen ? '收起' : '展开' }} 受检者信息（选填）
+        </button>
+        <div v-show="subjectOpen" id="subject-fields" class="subject-fields">
+          <label class="subject-item">
+            <span class="lbl">受检者编号</span>
+            <el-input
+              v-model="subject.subjectCode"
+              maxlength="32"
+              placeholder="不填则自动生成，如 受检者-0005"
+              clearable
+              style="width: 220px"
+            />
+          </label>
+          <div class="subject-item">
+            <span class="lbl">性别</span>
+            <el-radio-group v-model="subject.gender">
+              <el-radio-button value="U">未知</el-radio-button>
+              <el-radio-button value="M">男</el-radio-button>
+              <el-radio-button value="F">女</el-radio-button>
+            </el-radio-group>
+          </div>
+          <label class="subject-item">
+            <span class="lbl">年龄</span>
+            <el-input-number
+              v-model="subject.age"
+              :min="0"
+              :max="120"
+              :value-on-clear="null"
+              controls-position="right"
+              placeholder="未知"
+              style="width: 120px"
+            />
+          </label>
+          <p class="subject-hint">
+            请勿填写姓名、手机号、身份证号。眼别在上方图像区选择；如需修改，请到「病例检索 → 编辑病例」。
+          </p>
+        </div>
+      </div>
+
       <!-- 操作 -->
       <div class="diag-actions">
         <el-button
@@ -427,7 +494,12 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
             </el-tag>
           </div>
           <div class="rs-patient">
-            患者：<b>{{ resultData.patientName }}</b>
+            <el-tooltip :content="subjectTooltip" placement="top">
+              <span tabindex="0">受检者：<b>{{ resultData.patientName || '—' }}</b></span>
+            </el-tooltip>
+            <div v-if="resultData.submitterName" class="rs-submitter">
+              录入人：{{ resultData.submitterName }}
+            </div>
           </div>
         </div>
 
@@ -435,8 +507,12 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
         <div v-if="resultData.ma" class="rs-block">
           <div class="rs-row">
             <span class="rs-label">检出 MA 数量</span>
-            <span class="rs-value big" :style="{ color: resultData.ma.maCount > 10 ? '#ff7d00' : '#00b42a' }">
-              {{ resultData.ma.maCount }}
+            <span
+              class="rs-value big"
+              :class="{ 'rs-missing': resultData.ma.maCount == null }"
+              :style="resultData.ma.maCount == null ? undefined : { color: resultData.ma.maCount > 10 ? '#ff7d00' : '#00b42a' }"
+            >
+              {{ formatMaCount(resultData.ma.maCount) }}
             </span>
           </div>
           <div class="rs-row">
@@ -507,7 +583,9 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
           </div>
           <div class="rs-row">
             <span class="rs-label">MA 数量</span>
-            <span class="rs-value big">{{ resultData.comprehensive.maCount }}</span>
+            <span class="rs-value big" :class="{ 'rs-missing': resultData.comprehensive.maCount == null }">
+              {{ formatMaCount(resultData.comprehensive.maCount) }}
+            </span>
           </div>
           <div v-if="resultData.comprehensive.summary" class="rs-row">
             <span class="rs-label">综合摘要</span>
@@ -545,8 +623,8 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
 
 <style scoped>
 .diagnosis-upload {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 16px;
   padding: 22px;
   margin-bottom: 16px;
@@ -563,9 +641,9 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
   --tile-color: #1677ff;
   position: relative;
   padding: 16px 18px;
-  border: 1.5px solid #e5e6eb;
+  border: 1.5px solid var(--hy-c-border, #e5e6eb);
   border-radius: 14px;
-  background: #fafbfc;
+  background: var(--hy-c-fill, #fafbfc);
   cursor: pointer;
   transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
   overflow: hidden;
@@ -577,7 +655,7 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
 }
 .diag-tile:hover {
   border-color: var(--tile-color);
-  background: #fff;
+  background: var(--hy-c-surface, #fff);
   box-shadow: 0 4px 14px rgba(22, 119, 255, 0.08);
   transform: none;
 }
@@ -608,12 +686,12 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
 .tile-title {
   font-size: 15px;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   margin-bottom: 4px;
 }
 .tile-desc {
   font-size: 12px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   line-height: 1.5;
 }
 .tile-active-tag {
@@ -629,16 +707,16 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
 }
 
 .diag-stage {
-  border: 1px dashed #e5e6eb;
+  border: 1px dashed var(--hy-c-border, #e5e6eb);
   border-radius: 12px;
   padding: 18px;
-  background: #fafbfc;
+  background: var(--hy-c-fill, #fafbfc);
 }
 .readonly-tip {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   padding: 24px;
   justify-content: center;
 }
@@ -649,8 +727,8 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
 .single-upload :deep(.el-upload-dragger) {
   width: 100%;
   border-radius: 10px;
-  background: #fff;
-  border-color: #c9cdd4;
+  background: var(--hy-c-surface, #fff);
+  border-color: var(--hy-c-border-strong, #c9cdd4);
 }
 .empty-drop {
   padding: 28px 0;
@@ -658,15 +736,15 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
 }
 .empty-drop .big-icon {
   font-size: 48px;
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
 }
 .empty-drop .drop-title {
   font-size: 14px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   margin: 8px 0 4px;
 }
 .empty-drop .drop-sub {
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 12px;
 }
 .empty-drop.small {
@@ -706,7 +784,7 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
 }
 .fname {
   font-size: 13px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   flex: 1;
   white-space: nowrap;
   overflow: hidden;
@@ -720,7 +798,7 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
   gap: 10px;
 }
 .extra-form .lbl {
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   font-size: 13px;
 }
 
@@ -730,7 +808,7 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
   gap: 14px;
 }
 .eye-cell {
-  background: #fff;
+  background: var(--hy-c-surface, #fff);
   border-radius: 10px;
   padding: 8px;
 }
@@ -738,7 +816,7 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
   font-size: 13px;
   font-weight: 600;
   margin-bottom: 6px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
 }
 
 .diag-actions {
@@ -775,20 +853,66 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
 }
 .rs-title .case-sn {
   font-family: 'Consolas', 'Monaco', monospace;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 13px;
 }
 .rs-patient {
   font-size: 13px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
+  text-align: right;
+}
+.rs-submitter {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--hy-c-text-3, #86909c);
+}
+.rs-missing {
+  font-size: 16px;
+  color: var(--hy-c-text-3, #86909c);
+}
+.subject-box {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--hy-c-border, #e5e6eb);
+  border-radius: 8px;
+}
+.subject-toggle {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  color: var(--el-color-primary, #165dff);
+  cursor: pointer;
+}
+.subject-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  margin-top: 10px;
+}
+.subject-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.subject-item .lbl {
+  font-size: 13px;
+  color: var(--hy-c-text-2, #4e5969);
+}
+.subject-hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--hy-c-text-3, #86909c);
 }
 
 .rs-block {
-  border: 1px solid #e5e6eb;
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 10px;
   padding: 14px 16px;
   margin-bottom: 12px;
-  background: #fafbfc;
+  background: var(--hy-c-fill, #fafbfc);
 }
 .rs-row {
   display: flex;
@@ -798,12 +922,12 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
 }
 .rs-label {
   width: 100px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 13px;
 }
 .rs-value {
   font-size: 14px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .rs-value.big {
   font-size: 22px;
@@ -817,8 +941,8 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
   margin-top: 10px;
 }
 .rs-img-cell {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 8px;
   padding: 6px;
 }
@@ -829,7 +953,7 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
 }
 .rs-img-title {
   font-size: 12px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   margin-bottom: 4px;
   display: flex;
   align-items: center;
@@ -838,7 +962,7 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
 }
 .overlay-line {
   font-size: 11px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   margin: 4px 0 2px;
 }
 

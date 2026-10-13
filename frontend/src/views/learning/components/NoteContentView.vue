@@ -42,7 +42,7 @@ const blocks = computed(() => parseNoteContent(props.content || ''))
 .note-text {
   margin: 0;
   white-space: pre-wrap;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   line-height: 1.7;
   font-size: 13px;
 }
@@ -53,11 +53,11 @@ const blocks = computed(() => parseNoteContent(props.content || ''))
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .note-table th,
 .note-table td {
-  border: 1px solid #e5e6eb;
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   padding: 6px 8px;
   text-align: left;
   vertical-align: top;
@@ -65,7 +65,7 @@ const blocks = computed(() => parseNoteContent(props.content || ''))
   white-space: pre-wrap;
 }
 .note-table th {
-  background: #f2f3f5;
+  background: var(--hy-c-fill, #f2f3f5);
   font-weight: 600;
 }
 </style>

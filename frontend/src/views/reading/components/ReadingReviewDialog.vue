@@ -7,6 +7,9 @@ import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ReadingApi } from '@/api'
 import ReviewPresetChips from './ReviewPresetChips.vue'
+import { usePendingReviewCount } from '@/composables/usePendingReviewCount'
+
+const { refreshPendingReviewCount } = usePendingReviewCount()
 import { EXCELLENT_PASS_COMMENT, appendReviewComment } from '../review-presets'
 
 const props = defineProps<{
@@ -77,6 +80,7 @@ const submit = async (accept: boolean) => {
         ? `已通过：${who} · ${row.caseNo}（记录 #${recordId}）。其它记录未改动。`
         : `已驳回：${who} · ${row.caseNo}（记录 #${recordId}）。其它记录未改动。`
     )
+    void refreshPendingReviewCount()
     emit('done', out)
     visible.value = false
   } catch {
@@ -167,17 +171,17 @@ const submit = async (accept: boolean) => {
   gap: 8px 16px;
   margin-bottom: 12px;
   font-size: 13px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .k {
   display: inline-block;
   width: 40px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
 }
 .rev-hint {
   margin: 8px 0 0;
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
 }
 .excellent-btn {
   width: 100%;

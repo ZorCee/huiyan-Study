@@ -18,7 +18,13 @@ from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from app.common.image_safety import UNKNOWN_QUALITY, is_ungradable
+from app.common.image_safety import (
+    UNKNOWN_EYE,
+    UNKNOWN_QUALITY,
+    eye_text,
+    is_ungradable,
+    quality_text,
+)
 from app.db.models.case_image import CaseImage
 from app.db.models.case_image_quality import CaseImageQuality
 
@@ -79,6 +85,65 @@ def parse_upstream(payload: dict) -> dict:
     }
 
 
+_PROB_ORDER = ["good", "usable", "poor", "ungradable"]
+
+
+def _probability_list(probs: Optional[dict]) -> List[dict]:
+    """上游概率键可能是中文或英文，统一成固定顺序的列表，便于界面画概率条"""
+    merged: Dict[str, float] = {}
+    for key, value in (probs or {}).items():
+        code = normalize_quality(key)
+        if code == UNKNOWN_QUALITY:
+            continue
+        try:
+            merged[code] = merged.get(code, 0.0) + float(value)
+        except (TypeError, ValueError):
+            continue
+    return [
+        {"level": code, "label": quality_text(code), "value": round(merged[code], 4)}
+        for code in _PROB_ORDER
+        if code in merged
+    ]
+
+
+def _advice(code: str, has_row: bool, error: str) -> str:
+    if code == "good":
+        return "图像清楚，可用于判读"
+    if code == "usable":
+        return "可用于判读，细小病灶请结合其他影像谨慎判断"
+    if code == "poor":
+        return "图像较差：建议重拍或转诊，不可据此给出阴性结论"
+    if code == "ungradable":
+        return "不可判读：需重拍或转诊，不可据此给出任何结论"
+    if has_row and error:
+        return f"未评估：{error}。请稍后重试，未评估前不可视为合格"
+    return "尚未评估，请点击「图像质控」"
+
+
+def _case_summary(items: List[dict]) -> dict:
+    total = len(items)
+    evaluated = sum(1 for it in items if it["evaluated"])
+    bad = sum(1 for it in items if it["gradable"] is False)
+    if total == 0:
+        verdict, text = "empty", "本病例没有原始影像"
+    elif bad:
+        verdict, text = "ungradable", f"{bad} 张影像不可判读，需重拍或转诊，不可据此给出阴性结论"
+    elif evaluated < total:
+        verdict = "unchecked" if evaluated == 0 else "incomplete"
+        text = "尚未完成图像质控" if evaluated == 0 else f"还有 {total - evaluated} 张未评估，暂不能视为合格"
+    else:
+        verdict, text = "pass", "全部影像可用于判读"
+    checked = [it["checkedAt"] for it in items if it["checkedAt"]]
+    return {
+        "verdict": verdict,
+        "verdictText": text,
+        "total": total,
+        "evaluated": evaluated,
+        "ungradable": bad,
+        "lastCheckedAt": max(checked) if checked else None,
+    }
+
+
 class ImageQualityService:
     # ---------- 读取 ----------
 
@@ -134,6 +199,55 @@ class ImageQualityService:
             .all()
         )
         return any(is_ungradable(r[0]) for r in rows)
+
+    @staticmethod
+    def case_result(db: Session, case_id: int) -> dict:
+        """
+        读取某病例每张原图已保存的图像质控结果，不调用算法。
+
+        只返回算法真实给出的字段（总等级、置信度、各等级概率）；
+        清晰度 / 曝光等分项现有模型不提供，不在此编造。
+        """
+        images = (
+            db.query(CaseImage)
+            .filter(
+                CaseImage.case_table == "training",
+                CaseImage.case_id == case_id,
+                CaseImage.role == "original",
+            )
+            .order_by(CaseImage.sort_order, CaseImage.id)
+            .all()
+        )
+        qmap = ImageQualityService.quality_map(db, [img.id for img in images])
+
+        items = []
+        for idx, img in enumerate(images, start=1):
+            row = qmap.get(img.id)
+            code = (row.quality if row else UNKNOWN_QUALITY) or UNKNOWN_QUALITY
+            error = (row.error_msg if row else "") or ""
+            eye = (img.eye or "").upper()
+            items.append({
+                "imageId": img.id,
+                "index": idx,
+                "url": img.file_url or "",
+                "fileName": img.file_name or "",
+                "eye": eye or UNKNOWN_EYE,
+                "eyeText": eye_text(eye),
+                "quality": code,
+                "qualityText": quality_text(code),
+                "confidence": float(row.confidence or 0.0) if row else 0.0,
+                "probabilities": _probability_list(row.probabilities if row else None),
+                "modelName": (row.model_name if row else "") or "",
+                "durationMs": int(row.infer_duration_ms or 0) if row else 0,
+                "checkedAt": row.checked_at.isoformat(sep=" ", timespec="seconds")
+                if row and row.checked_at else None,
+                "evaluated": bool(row) and code != UNKNOWN_QUALITY,
+                "error": error,
+                "gradable": None if code == UNKNOWN_QUALITY else not is_ungradable(code),
+                "advice": _advice(code, row is not None, error),
+            })
+
+        return {"caseId": case_id, "summary": _case_summary(items), "items": items}
 
     # ---------- 写入 ----------
 
@@ -264,4 +378,5 @@ class ImageQualityService:
 
         summary["hasUngradable"] = ImageQualityService.case_has_ungradable(db, case_id)
         summary["gradedTotal"] = ImageQualityService.graded_original_count(db)
+        summary["caseSummary"] = ImageQualityService.case_result(db, case_id)["summary"]
         return summary

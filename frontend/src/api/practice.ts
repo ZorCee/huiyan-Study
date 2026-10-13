@@ -104,6 +104,10 @@ export interface PracticeRecord {
   examTotal?: number
   /** 正式考试要整卷交齐才为真 */
   answersOpen?: boolean
+  /** 当前查看人能否看金标准（老师在学员交卷后即可看） */
+  goldVisible?: boolean
+  /** 不能看金标准时的原因，前端直接展示 */
+  goldLockReason?: string
   /** 平时练习已经打开的提示，一次一则 */
   hints?: string[]
   hintsLeft?: number

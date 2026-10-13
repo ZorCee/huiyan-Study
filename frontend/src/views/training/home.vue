@@ -1,17 +1,38 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, ArrowUp, QuestionFilled } from '@element-plus/icons-vue'
-import { ExamApi, PracticeApi, ReadingApi, RotationApi } from '@/api'
+import {
+  ArrowDown,
+  ArrowUp,
+  QuestionFilled,
+  Back,
+  Close,
+  RefreshLeft,
+  Check,
+  Filter
+} from '@element-plus/icons-vue'
+import { ExamApi, PracticeApi, RotationApi } from '@/api'
 import type { ExamPaper } from '@/api/exam'
-import type { GroupSummary, RotationTask, StudentHome, StudentProgress, TeacherHome } from '@/api/rotation'
-import type { PracticeRecord, PracticeStats } from '@/api/practice'
+import type {
+  CaseOptionItem,
+  GroupSummary,
+  PendingCaseItem,
+  RotationTask,
+  StudentHome,
+  StudentProgress,
+  TeacherHome
+} from '@/api/rotation'
+import { CATEGORY_OPTIONS, DIFFICULTY_OPTIONS } from '@/api/case-browse'
 import { useUserStore } from '@/stores/user'
 import { actorLabel } from '@/utils/actor'
-import ReadingQualityPanel from '@/views/reading/components/ReadingQualityPanel.vue'
+import { usePendingReviewCount } from '@/composables/usePendingReviewCount'
+import StudentDrilldownDrawer from './components/StudentDrilldownDrawer.vue'
+import WeakCaseListDialog from './components/WeakCaseListDialog.vue'
+import KpiDrilldownDialog from './components/KpiDrilldownDialog.vue'
 
 const router = useRouter()
+const route = useRoute()
 const userStore = useUserStore()
 const isTeacher = computed(() => userStore.isAdmin || userStore.isDoctor)
 
@@ -25,7 +46,23 @@ const caseScope = ref<'ALL' | 'YEAR' | 'GROUP'>('ALL')
 const caseScopeValue = ref('')
 const resourceId = ref<number | undefined>()
 const knowledgeTitle = ref('')
-const caseOptions = ref<{ id: number; label: string }[]>([])
+const caseOptions = ref<CaseOptionItem[]>([])
+const pendingCases = ref<PendingCaseItem[]>([])
+const optionsLoaded = ref(false)
+const caseCategoryFilter = ref('')
+const caseDifficultyFilter = ref('')
+const caseGradeFilter = ref('')
+const DR_GRADE_CHOICES = ['0', '1', '2', '3', '4']
+const matchesCaseFilters = (item: CaseOptionItem) =>
+  (!caseCategoryFilter.value || item.category === caseCategoryFilter.value) &&
+  (!caseDifficultyFilter.value || item.difficulty === caseDifficultyFilter.value) &&
+  (!caseGradeFilter.value || item.goldDrGrade === caseGradeFilter.value)
+const filteredCaseOptions = computed(() => caseOptions.value.filter(matchesCaseFilters))
+const filteredPendingCases = computed(() => pendingCases.value.filter(matchesCaseFilters))
+const caseFiltersActive = computed(
+  () => !!(caseCategoryFilter.value || caseDifficultyFilter.value || caseGradeFilter.value)
+)
+const goCaseLibrary = () => router.push('/training/cases')
 const resourceOptions = ref<{ id: number; label: string }[]>([])
 const dueDraft = ref('')
 const passDraft = ref(60)
@@ -34,10 +71,8 @@ const yearFilter = ref('')
 const batchFilter = ref('')
 const mentorFilter = ref('')
 const activeTeacherTab = ref('monitor')
-const pendingReviewCount = ref(0)
+const { pendingReviewCount, refreshPendingReviewCount } = usePendingReviewCount()
 const openExams = ref<ExamPaper[]>([])
-const groupDraft = ref({ studyYear: '', rotationBatch: '', mentorGroup: '' })
-const savingGroup = ref(false)
 
 const load = async () => {
   loading.value = true
@@ -49,6 +84,7 @@ const load = async () => {
       titleDraft.value = data.rotation?.title || ''
       dueDraft.value = data.rotation?.dueOn || ''
       passDraft.value = data.rotation?.passScore ?? 60
+      syncFromQuery()
     } else {
       student.value = data
       teacher.value = null
@@ -62,21 +98,14 @@ const loadOptions = async () => {
   if (!isTeacher.value) return
   const data = await RotationApi.getOptions()
   caseOptions.value = data.cases || []
+  pendingCases.value = data.pendingCases || []
   resourceOptions.value = data.resources || []
+  optionsLoaded.value = true
 }
 
 const loadPendingReviews = async () => {
   if (!isTeacher.value) return
-  try {
-    const page = await ReadingApi.getReadingList({
-      status: 'SUBMITTED',
-      page: 1,
-      pageSize: 1
-    })
-    pendingReviewCount.value = Number(page?.total) || 0
-  } catch {
-    pendingReviewCount.value = 0
-  }
+  await refreshPendingReviewCount()
 }
 
 const loadOpenExams = async () => {
@@ -86,7 +115,12 @@ const loadOpenExams = async () => {
   }
   try {
     const rows = (await ExamApi.listExams()) || []
-    openExams.value = rows.filter((paper) => paper.status === 'OPEN' && paper.mineStatus !== 'HANDED')
+    openExams.value = rows.filter(
+      (paper) =>
+        paper.status === 'OPEN' &&
+        paper.mineStatus !== 'HANDED' &&
+        paper.mineStatus !== 'TIMEOUT_BLANK'
+    )
   } catch {
     openExams.value = []
   }
@@ -149,7 +183,122 @@ const matchGroup = (row: { studyYear: string; rotationBatch: string; mentorGroup
 }
 
 const filteredStudents = computed(() => (teacher.value?.students || []).filter(matchGroup))
-const visibleGroups = computed(() => (teacher.value?.groups || []).filter(matchGroup))
+
+// 组卡片区展示：按下拉框选中的年级和批次收窄，但不因选择了带教组而隐藏其它组卡片，确保用户可随时切换
+const visibleGroups = computed(() => {
+  const all = teacher.value?.groups || []
+  return all.filter((g) => {
+    if (yearFilter.value && g.studyYear !== yearFilter.value && g.studyYear !== '未分组') return false
+    if (batchFilter.value && g.rotationBatch !== batchFilter.value && g.rotationBatch !== '未分组') return false
+    return true
+  })
+})
+
+const isGroupSelected = (group: GroupSummary) => {
+  const gYear = group.studyYear === '未分组' ? '' : group.studyYear
+  const gBatch = group.rotationBatch === '未分组' ? '' : group.rotationBatch
+  const gMentor = group.mentorGroup === '未分组' ? '' : group.mentorGroup
+  return (
+    yearFilter.value === gYear &&
+    batchFilter.value === gBatch &&
+    mentorFilter.value === gMentor
+  )
+}
+
+const isAnyFilterActive = computed(() => !!(yearFilter.value || batchFilter.value || mentorFilter.value))
+
+// 状态同步到路由 Query（支持浏览器前进后退、刷新保持、收藏分享）
+const syncToQuery = (replace = false) => {
+  const q = { ...route.query }
+  if (yearFilter.value) q.studyYear = yearFilter.value; else delete q.studyYear
+  if (batchFilter.value) q.rotationBatch = batchFilter.value; else delete q.rotationBatch
+  if (mentorFilter.value) q.mentorGroup = mentorFilter.value; else delete q.mentorGroup
+  if (activeTeacherTab.value) q.tab = activeTeacherTab.value
+
+  if (replace) {
+    router.replace({ query: q })
+  } else {
+    router.push({ query: q })
+  }
+}
+
+// 从路由 Query 同步回响应式变量
+const syncFromQuery = () => {
+  const q = route.query
+  const qYear = typeof q.studyYear === 'string' ? q.studyYear : ''
+  const qBatch = typeof q.rotationBatch === 'string' ? q.rotationBatch : ''
+  const qMentor = typeof q.mentorGroup === 'string' ? q.mentorGroup : ''
+  const qTab = typeof q.tab === 'string' ? q.tab : ''
+
+  if (qYear !== yearFilter.value) yearFilter.value = qYear
+  if (qBatch !== batchFilter.value) batchFilter.value = qBatch
+  if (qMentor !== mentorFilter.value) mentorFilter.value = qMentor
+  if (qTab && qTab !== activeTeacherTab.value) activeTeacherTab.value = qTab
+}
+
+// 监听路由 query 变动（用户点击浏览器后退 / 前进键）
+watch(
+  () => route.query,
+  () => {
+    syncFromQuery()
+  }
+)
+
+const onDropdownFilterChange = () => {
+  syncToQuery(false)
+}
+
+const onTabChange = (name: string | number) => {
+  activeTeacherTab.value = String(name)
+  syncToQuery(true)
+}
+
+const filterByGroup = (group: GroupSummary) => {
+  const gYear = group.studyYear === '未分组' ? '' : group.studyYear
+  const gBatch = group.rotationBatch === '未分组' ? '' : group.rotationBatch
+  const gMentor = group.mentorGroup === '未分组' ? '' : group.mentorGroup
+
+  if (isGroupSelected(group)) {
+    // 二次点击取消筛选，返回全部学员
+    clearAllGroupFilters(true)
+    ElMessage.info('已取消带教组筛选，返回全部学员')
+    return
+  }
+
+  // 选中该组 / 切换到该组
+  yearFilter.value = gYear
+  batchFilter.value = gBatch
+  mentorFilter.value = gMentor
+  syncToQuery(false)
+  ElMessage.success(`已筛选【${group.mentorGroup || '带教组'}】学员进度列表`)
+}
+
+const clearAllGroupFilters = (pushHistory = true) => {
+  yearFilter.value = ''
+  batchFilter.value = ''
+  mentorFilter.value = ''
+  if (pushHistory) {
+    syncToQuery(false)
+  }
+}
+
+const clearFilter = (type: 'year' | 'batch' | 'mentor') => {
+  if (type === 'year') yearFilter.value = ''
+  else if (type === 'batch') batchFilter.value = ''
+  else if (type === 'mentor') mentorFilter.value = ''
+  syncToQuery(false)
+}
+
+const selectBreadcrumbYear = () => {
+  batchFilter.value = ''
+  mentorFilter.value = ''
+  syncToQuery(false)
+}
+
+const selectBreadcrumbBatch = () => {
+  mentorFilter.value = ''
+  syncToQuery(false)
+}
 
 const classSummary = computed(() => {
   const rows = teacher.value?.students || []
@@ -167,112 +316,81 @@ const classSummary = computed(() => {
   }
 })
 
-const weakText = (group: GroupSummary) =>
-  group.weakLabels
-    .map((item) => `${item.label} 漏诊 ${item.missed}、误诊 ${item.falsePositive}`)
-    .join('；')
-
-const drawerOpen = ref(false)
-const focusStudent = ref<StudentProgress | null>(null)
-const detailLoading = ref(false)
-const studentStats = ref<PracticeStats | null>(null)
-const studentRecords = ref<PracticeRecord[]>([])
-const commentDraft = ref<Record<number, string>>({})
-const savingCommentId = ref(0)
-
-const finishedRecords = computed(() =>
-  studentRecords.value
-    .filter((row) => row.status === 'SUBMITTED' || row.status === 'REVIEWED')
-    .slice()
-    .sort((a, b) => (a.submittedAt || a.createdAt || '').localeCompare(b.submittedAt || b.createdAt || ''))
-)
-
-const retryChanges = computed(() => {
-  const groups = new Map<number, PracticeRecord[]>()
-  finishedRecords.value.forEach((row) => {
-    const list = groups.get(row.caseId) || []
-    list.push(row)
-    groups.set(row.caseId, list)
-  })
-  return [...groups.values()]
-    .filter((list) => list.length >= 2)
-    .map((list) => {
-      const first = list[0]
-      const last = list[list.length - 1]
-      const delta = Math.round((last.scoreTotal - first.scoreTotal) * 10) / 10
-      return {
-        caseNo: last.caseNo || first.caseNo,
-        times: list.length,
-        first: first.scoreTotal,
-        last: last.scoreTotal,
-        delta
-      }
-    })
-})
-
 const formatMinutes = (seconds: number) => {
   if (!seconds) return '0 分钟'
   if (seconds < 60) return '不足 1 分钟'
   return `${Math.round(seconds / 60)} 分钟`
 }
 
-const openStudent = async (row: StudentProgress) => {
+const drawerOpen = ref(false)
+const focusStudent = ref<StudentProgress | null>(null)
+
+const openStudent = (row: StudentProgress) => {
   focusStudent.value = row
-  groupDraft.value = {
-    studyYear: row.studyYear === '未分组' ? '' : row.studyYear,
-    rotationBatch: row.rotationBatch === '未分组' ? '' : row.rotationBatch,
-    mentorGroup: row.mentorGroup === '未分组' ? '' : row.mentorGroup
-  }
   drawerOpen.value = true
-  detailLoading.value = true
-  studentStats.value = null
-  studentRecords.value = []
-  commentDraft.value = {}
-  try {
-    const [stats, page] = await Promise.all([
-      PracticeApi.getUserStats(row.userId),
-      PracticeApi.getPracticeList({ userId: row.userId, page: 1, pageSize: 200 })
-    ])
-    studentStats.value = stats
-    studentRecords.value = page?.list || []
-    const drafts: Record<number, string> = {}
-    studentRecords.value.forEach((item) => {
-      drafts[item.id] = item.teacherComment || ''
-    })
-    commentDraft.value = drafts
-  } finally {
-    detailLoading.value = false
-  }
 }
 
-const saveGroup = async () => {
-  if (!focusStudent.value) return
-  savingGroup.value = true
-  try {
-    const home = await RotationApi.setStudentGroup(focusStudent.value.userId, { ...groupDraft.value })
+const onGroupUpdated = async () => {
+  const home = await RotationApi.getHome()
+  if (home.role === 'teacher') {
     teacher.value = home
-    const latest = home.students.find((item) => item.userId === focusStudent.value?.userId)
-    if (latest) focusStudent.value = latest
-    ElMessage.success('分组已保存，完成情况和常见问题已按新组计算')
-  } finally {
-    savingGroup.value = false
+    if (focusStudent.value) {
+      const latest = home.students.find((item) => item.userId === focusStudent.value?.userId)
+      if (latest) focusStudent.value = latest
+    }
   }
 }
 
-const saveComment = async (row: PracticeRecord) => {
-  const text = (commentDraft.value[row.id] || '').trim()
-  if (!text) {
-    ElMessage.warning('请先写评语')
-    return
-  }
-  savingCommentId.value = row.id
-  try {
-    const saved = await PracticeApi.reviewPractice(row.id, text)
-    const index = studentRecords.value.findIndex((item) => item.id === row.id)
-    if (index >= 0) studentRecords.value[index] = saved
-    commentDraft.value[row.id] = saved.teacherComment || text
-  } finally {
-    savingCommentId.value = 0
+// KPI 穿透状态
+const kpiModalVisible = ref(false)
+const kpiModalType = ref<'students' | 'practice' | 'avgScore' | 'studyHours'>('students')
+const kpiModalTitle = ref('')
+
+const openKpiModal = (type: 'students' | 'practice' | 'avgScore' | 'studyHours') => {
+  kpiModalType.value = type
+  if (type === 'students') kpiModalTitle.value = '全班学员名单及作答情况'
+  else if (type === 'practice') kpiModalTitle.value = '全班练习交卷台账明细'
+  else if (type === 'avgScore') kpiModalTitle.value = '练习成绩分布与逐人达标'
+  else if (type === 'studyHours') kpiModalTitle.value = '学员有效在机学时排行'
+  kpiModalVisible.value = true
+}
+
+const onSelectStudentFromKpi = (stu: StudentProgress) => {
+  kpiModalVisible.value = false
+  openStudent(stu)
+}
+
+// 常见漏诊误诊穿透状态
+const weakModalVisible = ref(false)
+const weakModalLabel = ref('')
+const weakModalType = ref<'missed' | 'false_positive' | ''>('')
+const weakModalGroup = ref<GroupSummary | null>(null)
+const weakModalTitle = ref('')
+
+const openGroupWeak = (group: GroupSummary, label: string, type: 'missed' | 'false_positive') => {
+  weakModalGroup.value = group
+  weakModalLabel.value = label
+  weakModalType.value = type
+  weakModalTitle.value = `【${group.mentorGroup || '带教组'}】${label} ${type === 'missed' ? '漏诊' : '误诊'}明细`
+  weakModalVisible.value = true
+}
+
+
+const openTaskWorkstation = (snap: any) => {
+  if (snap.caseId && snap.sessionId) {
+    router.push({
+      path: '/training/practice/workstation',
+      query: {
+        caseId: String(snap.caseId),
+        sessionId: String(snap.sessionId),
+        view: 'report'
+      }
+    })
+  } else if (snap.caseId) {
+    router.push({
+      path: '/training/reading',
+      query: { caseId: String(snap.caseId) }
+    })
   }
 }
 
@@ -506,73 +624,200 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
       </header>
 
       <section class="teacher-metrics" aria-label="全班核心指标">
-        <article>
+        <article class="clickable-card" @click="openKpiModal('students')">
           <div class="tm-label">
             <span>学员数</span>
+            <span class="tm-hint">&gt;</span>
           </div>
           <strong>{{ classSummary.students }}</strong>
           <span>已交卷 {{ classSummary.practiced }} 人</span>
         </article>
-        <article>
+        <article class="clickable-card" @click="openKpiModal('practice')">
           <div class="tm-label">
             <span>练习次数</span>
+            <span class="tm-hint">&gt;</span>
           </div>
           <strong>{{ classSummary.practice }}</strong>
           <span>全班交卷总人次</span>
         </article>
-        <article>
+        <article class="clickable-card" @click="openKpiModal('avgScore')">
           <div class="tm-label">
             <span>平均分</span>
+            <span class="tm-hint">&gt;</span>
           </div>
           <strong>{{ classSummary.avg.toFixed(1) }}</strong>
           <span>练习综合达标水平</span>
         </article>
-        <article>
+        <article class="clickable-card" @click="openKpiModal('studyHours')">
           <div class="tm-label">
             <span>总学时</span>
             <el-tooltip
-              content="学时记录学员在机练习实际操作时长，交卷即固化；教师通过/驳回判定临床质量，不修改物理学时。"
+              content="学时记录学员在机练习实际操作时长，交卷即固化；教师通过/驳回判定阅片质量，不修改物理学时。"
               placement="top"
             >
               <el-icon class="tm-help"><question-filled /></el-icon>
             </el-tooltip>
+            <span class="tm-hint">&gt;</span>
           </div>
           <strong>{{ formatMinutes(classSummary.seconds) }}</strong>
           <span>在机有效练习时长</span>
         </article>
       </section>
 
-      <el-tabs v-model="activeTeacherTab" type="border-card" class="teacher-tabs">
-        <el-tab-pane label="学情监控与督学" name="monitor">
+      <el-tabs v-model="activeTeacherTab" type="border-card" class="teacher-tabs" @tab-change="onTabChange">
+        <el-tab-pane label="学情分析" name="monitor">
         <h3 class="subhead">按组查看</h3>
         <p class="lead">按年级、轮转批次和带教组分别看完成情况和常见漏诊、误诊。还没填写的学员先算在「未分组」。</p>
         <div class="assign">
-          <el-select v-model="yearFilter" clearable placeholder="全部年级" style="width: 160px">
+          <el-select v-model="yearFilter" clearable placeholder="全部年级" style="width: 160px" @change="onDropdownFilterChange" @clear="onDropdownFilterChange">
             <el-option v-for="item in yearOptions" :key="item" :label="item" :value="item" />
           </el-select>
-          <el-select v-model="batchFilter" clearable placeholder="全部轮转批次" style="width: 180px">
+          <el-select v-model="batchFilter" clearable placeholder="全部轮转批次" style="width: 180px" @change="onDropdownFilterChange" @clear="onDropdownFilterChange">
             <el-option v-for="item in batchOptions" :key="item" :label="item" :value="item" />
           </el-select>
-          <el-select v-model="mentorFilter" clearable placeholder="全部带教组" style="width: 160px">
+          <el-select v-model="mentorFilter" clearable placeholder="全部带教组" style="width: 160px" @change="onDropdownFilterChange" @clear="onDropdownFilterChange">
             <el-option v-for="item in mentorOptions" :key="item" :label="item" :value="item" />
           </el-select>
+          <el-button v-if="isAnyFilterActive" size="small" :icon="RefreshLeft" @click="clearAllGroupFilters(true)">
+            重置筛选
+          </el-button>
         </div>
         <div class="group-grid">
-          <article v-for="group in visibleGroups" :key="`${group.studyYear}-${group.rotationBatch}-${group.mentorGroup}`">
-            <strong>{{ group.studyYear }} · {{ group.rotationBatch }} · {{ group.mentorGroup }}</strong>
+          <article
+            v-for="group in visibleGroups"
+            :key="`${group.studyYear}-${group.rotationBatch}-${group.mentorGroup}`"
+            class="clickable-group-card"
+            :class="{ 'is-selected': isGroupSelected(group) }"
+            @click="filterByGroup(group)"
+          >
+            <div class="group-card-header">
+              <strong>{{ group.studyYear }} · {{ group.rotationBatch }} · {{ group.mentorGroup }}</strong>
+              <span v-if="isGroupSelected(group)" class="group-filter-tip is-active">
+                <el-icon><Check /></el-icon> 已筛选（点击取消）
+              </span>
+              <span v-else class="group-filter-tip">点击快速筛选</span>
+            </div>
             <p>{{ group.studentCount }} 名学员，完成 {{ group.done }} / {{ group.total }} 项，进度 {{ group.progress }}%。</p>
-            <p>{{ weakText(group) || '这一组还没有汇总出漏诊或误诊。' }}</p>
+            <div v-if="group.weakLabels && group.weakLabels.length" class="weak-tag-group">
+              <span class="weak-title">常见问题：</span>
+              <template v-for="w in group.weakLabels" :key="w.label">
+                <el-tag
+                  v-if="w.missed > 0"
+                  size="small"
+                  type="danger"
+                  class="clickable-weak-tag"
+                  @click.stop="openGroupWeak(group, w.label, 'missed')"
+                >
+                  漏诊{{ w.label }} {{ w.missed }}次 &gt;
+                </el-tag>
+                <el-tag
+                  v-if="w.falsePositive > 0"
+                  size="small"
+                  type="warning"
+                  class="clickable-weak-tag"
+                  @click.stop="openGroupWeak(group, w.label, 'false_positive')"
+                >
+                  误诊{{ w.label }} {{ w.falsePositive }}次 &gt;
+                </el-tag>
+              </template>
+            </div>
+            <p v-else class="empty-weak-tip">这一组还没有汇总出漏诊或误诊。</p>
           </article>
+        </div>
+
+        <!-- 层级面包屑导航 -->
+        <div class="drilldown-breadcrumb-bar">
+          <span class="bc-lead">层级路径：</span>
+          <el-breadcrumb separator="/">
+            <el-breadcrumb-item>
+              <a
+                href="javascript:void(0)"
+                class="bc-link"
+                :class="{ 'bc-active-link': isAnyFilterActive }"
+                @click="clearAllGroupFilters(true)"
+              >
+                全部学员
+              </a>
+            </el-breadcrumb-item>
+            <el-breadcrumb-item v-if="yearFilter">
+              <a
+                href="javascript:void(0)"
+                class="bc-link"
+                :class="{ 'bc-active-link': batchFilter || mentorFilter }"
+                @click="selectBreadcrumbYear"
+              >
+                {{ yearFilter }}
+              </a>
+            </el-breadcrumb-item>
+            <el-breadcrumb-item v-if="batchFilter">
+              <a
+                href="javascript:void(0)"
+                class="bc-link"
+                :class="{ 'bc-active-link': mentorFilter }"
+                @click="selectBreadcrumbBatch"
+              >
+                {{ batchFilter }}
+              </a>
+            </el-breadcrumb-item>
+            <el-breadcrumb-item v-if="mentorFilter">
+              <span class="bc-current">{{ mentorFilter }}</span>
+            </el-breadcrumb-item>
+          </el-breadcrumb>
+        </div>
+
+        <!-- 常驻高可见筛选状态提示条 -->
+        <div v-if="isAnyFilterActive" class="filter-status-banner">
+          <div class="fsb-left">
+            <el-icon class="fsb-icon"><Filter /></el-icon>
+            <span class="fsb-title">已按带教维度筛选：</span>
+            <el-tag v-if="yearFilter" size="small" closable @close="clearFilter('year')">
+              年级：{{ yearFilter }}
+            </el-tag>
+            <el-tag v-if="batchFilter" size="small" closable @close="clearFilter('batch')">
+              批次：{{ batchFilter }}
+            </el-tag>
+            <el-tag v-if="mentorFilter" size="small" type="success" closable @close="clearFilter('mentor')">
+              带教组：{{ mentorFilter }}
+            </el-tag>
+            <span class="fsb-count">
+              （已匹配 <strong>{{ filteredStudents.length }}</strong> 名学员 / 全班共 {{ teacher?.students?.length || 0 }} 人）
+            </span>
+          </div>
+          <div class="fsb-actions">
+            <el-button type="primary" size="small" :icon="Back" @click="clearAllGroupFilters(true)">
+              返回全部学员
+            </el-button>
+            <el-button size="small" :icon="RefreshLeft" @click="clearAllGroupFilters(true)">
+              清除筛选
+            </el-button>
+            <el-tooltip content="清除筛选，返回全部学员" placement="top">
+              <button class="fsb-close-circle" type="button" @click="clearAllGroupFilters(true)" aria-label="清除筛选">
+                <el-icon><Close /></el-icon>
+              </button>
+            </el-tooltip>
+          </div>
         </div>
 
         <h3 class="subhead">学员进度</h3>
         <el-table :data="filteredStudents" empty-text="这一组还没有学员">
           <el-table-column type="expand">
             <template #default="{ row }">
-              <div v-for="item in row.tasks || []" :key="item.taskId" class="snap">
-                <span>{{ taskTitle(item.taskId) }}</span>
-                <el-tag size="small" :type="statusType(item)" effect="plain">{{ item.statusText }}</el-tag>
-                <span v-if="item.score != null">{{ item.score }} 分</span>
+              <div class="expand-tasks-wrap">
+                <div v-for="item in row.tasks || []" :key="item.taskId" class="snap-row">
+                  <span class="snap-title">{{ taskTitle(item.taskId) }}</span>
+                  <el-tag size="small" :type="statusType(item)" effect="plain">{{ item.statusText }}</el-tag>
+                  <span v-if="item.score != null" class="snap-score">{{ item.score }} 分</span>
+                  <el-button
+                    v-if="item.sessionId && item.caseId"
+                    link
+                    type="primary"
+                    size="small"
+                    class="snap-btn"
+                    @click="openTaskWorkstation(item)"
+                  >
+                    查看判读报告 &gt;
+                  </el-button>
+                </div>
               </div>
             </template>
           </el-table-column>
@@ -634,9 +879,61 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
       <section class="block">
         <h3>推荐病例</h3>
         <p class="lead">必做计入该年级或轮转组的完成进度。拓展是选做。同一例可以分别推荐给不同范围。</p>
+        <div class="assign case-filters">
+          <el-select v-model="caseCategoryFilter" clearable placeholder="病种" style="width: 160px">
+            <el-option v-for="item in CATEGORY_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+          <el-select v-model="caseDifficultyFilter" clearable placeholder="难度" style="width: 110px">
+            <el-option v-for="item in DIFFICULTY_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+          <el-select v-model="caseGradeFilter" clearable placeholder="DR 分级" style="width: 110px">
+            <el-option v-for="g in DR_GRADE_CHOICES" :key="g" :label="`${g} 级`" :value="g" />
+          </el-select>
+          <el-button link type="primary" @click="goCaseLibrary">找不到？去上传 / 管理病例</el-button>
+        </div>
+        <el-alert
+          v-if="pendingCases.length"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="case-pending-tip"
+        >
+          <template #title>
+            你还有 {{ pendingCases.length }} 例病例未开放练习，暂时不能推荐。
+            <el-button link type="primary" @click="goCaseLibrary">去病例库处理</el-button>
+          </template>
+        </el-alert>
+        <div v-if="optionsLoaded && !caseOptions.length" class="case-empty">
+          <span>暂无可选病例，请先上传病例，发布并开放练习。</span>
+          <el-button size="small" type="primary" @click="goCaseLibrary">去病例库</el-button>
+        </div>
         <div class="assign">
-          <el-select v-model="caseId" clearable filterable placeholder="选择病例" style="width: 320px">
-            <el-option v-for="item in caseOptions" :key="item.id" :label="item.label" :value="item.id" />
+          <el-select
+            v-model="caseId"
+            clearable
+            filterable
+            placeholder="选择病例"
+            :no-data-text="caseFiltersActive ? '没有符合筛选条件的病例' : '暂无可选病例'"
+            :no-match-text="'没有匹配的病例'"
+            style="width: 320px"
+          >
+            <el-option-group v-if="filteredCaseOptions.length" label="可推荐">
+              <el-option v-for="item in filteredCaseOptions" :key="item.id" :label="item.label" :value="item.id" />
+            </el-option-group>
+            <el-option-group v-if="filteredPendingCases.length" label="我的待处理病例（不可选）">
+              <el-option
+                v-for="item in filteredPendingCases"
+                :key="`pending-${item.id}`"
+                :label="item.label"
+                :value="-item.id"
+                disabled
+              >
+                <span class="pending-option">
+                  <span class="pending-label">{{ item.label }}</span>
+                  <span class="pending-step">{{ item.missingStep }}</span>
+                </span>
+              </el-option>
+            </el-option-group>
           </el-select>
           <el-select v-model="caseTier" style="width: 120px">
             <el-option label="必做病例" value="REQUIRED" />
@@ -734,110 +1031,40 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
       </section>
         </el-tab-pane>
 
-        <el-tab-pane label="待审概况" name="review" lazy>
-          <p class="review-guide">
-            当前有 {{ pendingReviewCount }} 份作业待评定。点击可就地审阅，或点击侧栏「作业批阅」进行全屏深度判读。
-          </p>
-          <ReadingQualityPanel />
-        </el-tab-pane>
       </el-tabs>
+      <p class="review-guide">
+        当前有 {{ pendingReviewCount }} 份作业待评定。
+        <el-button link type="primary" @click="router.push('/training/reading?tab=review')">
+          去作业批阅
+        </el-button>
+      </p>
 
-      <el-drawer v-model="drawerOpen" :title="focusStudent ? `${focusStudent.name}的学情` : '学情'" size="720px">
-        <div v-loading="detailLoading">
-          <section class="block">
-            <h3>分组</h3>
-            <div class="assign">
-              <el-input v-model="groupDraft.studyYear" placeholder="年级，如 2024级" style="width: 180px" />
-              <el-input v-model="groupDraft.rotationBatch" placeholder="轮转批次，如 2026年上半年" style="width: 220px" />
-              <el-input v-model="groupDraft.mentorGroup" placeholder="带教组" style="width: 160px" />
-              <el-button type="primary" :loading="savingGroup" @click="saveGroup">保存分组</el-button>
-            </div>
-            <p v-if="focusStudent" class="lead">
-              {{
-                actorLabel(focusStudent.groupEditorName, focusStudent.groupEditorRole)
-                  ? `最近由 ${actorLabel(focusStudent.groupEditorName, focusStudent.groupEditorRole)}${focusStudent.groupEditedAt ? ` 于 ${focusStudent.groupEditedAt}` : ''} 修改`
-                  : '这次保存会记下修改人'
-              }}
-            </p>
-          </section>
-          <div v-if="studentStats" class="stats detail-stats">
-            <article>
-              <span>练习次数</span>
-              <strong>{{ studentStats.submittedSessions }}</strong>
-            </article>
-            <article>
-              <span>完成病例</span>
-              <strong>{{ studentStats.completedCases }}</strong>
-            </article>
-            <article>
-              <span>平均成绩</span>
-              <strong>{{ studentStats.avgScore.toFixed(1) }}</strong>
-            </article>
-            <article>
-              <span>学时</span>
-              <strong>{{ formatMinutes(studentStats.totalDuration) }}</strong>
-            </article>
-          </div>
+      <!-- 学员学情抽屉（四层下钻第3层） -->
+      <StudentDrilldownDrawer
+        v-model="drawerOpen"
+        :student="focusStudent"
+        @group-updated="onGroupUpdated"
+      />
 
-          <section class="block">
-            <h3>常见漏诊和误诊</h3>
-            <el-table v-if="studentStats?.weakLabels?.length" :data="studentStats.weakLabels" size="small">
-              <el-table-column prop="label" label="病灶" min-width="140" />
-              <el-table-column prop="missed" label="漏诊" width="90" />
-              <el-table-column prop="falsePositive" label="误诊" width="90" />
-            </el-table>
-            <p v-else class="empty">还没有汇总出漏诊或误诊。</p>
-          </section>
+      <!-- 全局/班级核心指标穿透弹窗（四层下钻第1层） -->
+      <KpiDrilldownDialog
+        v-model="kpiModalVisible"
+        :kpi-type="kpiModalType"
+        :title="kpiModalTitle"
+        :students="teacher?.students || []"
+        @select-student="onSelectStudentFromKpi"
+      />
 
-          <section class="block">
-            <h3>复练后的变化</h3>
-            <div v-if="retryChanges.length">
-              <p v-for="item in retryChanges" :key="item.caseNo" class="lead">
-                {{ item.caseNo }} 练了 {{ item.times }} 次，{{ item.first }} 分到 {{ item.last }} 分，
-                {{ item.delta > 0 ? `提高 ${item.delta} 分` : item.delta < 0 ? `下降 ${Math.abs(item.delta)} 分` : '分数持平' }}。
-              </p>
-            </div>
-            <p v-else class="empty">同一病例还没有第二次已交卷的练习。</p>
-          </section>
-
-          <section class="block">
-            <h3>已完成病例和得分</h3>
-            <el-table :data="finishedRecords" size="small" empty-text="还没有交卷记录">
-              <el-table-column label="交卷时间" width="150">
-                <template #default="{ row }">{{ (row.submittedAt || '').slice(0, 16) || '—' }}</template>
-              </el-table-column>
-              <el-table-column prop="caseNo" label="病例" width="120" />
-              <el-table-column label="得分" width="80">
-                <template #default="{ row }">{{ row.scoreTotal }}</template>
-              </el-table-column>
-              <el-table-column label="用时" width="110">
-                <template #default="{ row }">{{ formatMinutes(row.durationSeconds) }}</template>
-              </el-table-column>
-              <el-table-column label="漏诊 / 误诊" width="120">
-                <template #default="{ row }">{{ row.missedCount }} / {{ row.falsePositiveCount }}</template>
-              </el-table-column>
-              <el-table-column label="教师评语" min-width="220">
-                <template #default="{ row }">
-                  <div class="comment-line">
-                    <el-input v-model="commentDraft[row.id]" size="small" placeholder="写一句评语" />
-                    <el-button
-                      size="small"
-                      type="primary"
-                      :loading="savingCommentId === row.id"
-                      @click="saveComment(row)"
-                    >
-                      保存
-                    </el-button>
-                  </div>
-                  <p v-if="row.teacherName" class="lead">
-                    点评人 {{ actorLabel(row.teacherName, row.teacherRole) }}
-                  </p>
-                </template>
-              </el-table-column>
-            </el-table>
-          </section>
-        </div>
-      </el-drawer>
+      <!-- 常见漏诊误诊病例/题目明细弹窗（四层下钻第4层） -->
+      <WeakCaseListDialog
+        v-model="weakModalVisible"
+        :title="weakModalTitle"
+        :label="weakModalLabel"
+        :error-type="weakModalType"
+        :study-year="weakModalGroup?.studyYear"
+        :rotation-batch="weakModalGroup?.rotationBatch"
+        :mentor-group="weakModalGroup?.mentorGroup"
+      />
       </div>
     </template>
   </div>
@@ -848,7 +1075,7 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
   max-width: 1100px;
   margin: 0 auto;
   padding: 28px 32px 48px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .page-head {
   display: flex;
@@ -866,7 +1093,7 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
 .task p,
 .meta {
   margin: 0;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   font-size: 14px;
   line-height: 1.6;
 }
@@ -877,8 +1104,8 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
   margin: 20px 0 8px;
 }
 .stats article {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 12px;
   padding: 16px 18px;
   display: flex;
@@ -886,12 +1113,12 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
   gap: 8px;
 }
 .stats span {
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   font-size: 13px;
 }
 .stats strong {
   font-size: 22px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .block {
   margin-top: 28px;
@@ -901,8 +1128,8 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
   font-size: 16px;
 }
 .exam-callout {
-  background: #fff;
-  border: 1px solid #dfe3ea;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border-strong, #dfe3ea);
   border-radius: 12px;
   padding: 16px 18px 8px;
 }
@@ -915,13 +1142,13 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
 }
 .exam-call p {
   margin: 4px 0 0;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   font-size: 13px;
 }
 .students-entry {
   margin-top: 20px;
-  background: #f7f8fa;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-fill, #f7f8fa);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 12px;
   padding: 18px 18px 8px;
 }
@@ -937,8 +1164,8 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
   gap: 16px;
   padding: 16px 18px;
   margin-bottom: 12px;
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 12px;
 }
 .task-title {
@@ -948,7 +1175,7 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
   margin-bottom: 6px;
 }
 .task-title strong {
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .task-actions {
   display: flex;
@@ -962,16 +1189,44 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
   gap: 8px;
   margin-bottom: 10px;
 }
+.case-filters {
+  align-items: center;
+}
+.case-pending-tip {
+  margin-bottom: 10px;
+}
+.case-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+.pending-option {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.pending-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pending-step {
+  flex-shrink: 0;
+  color: var(--el-color-warning);
+  font-size: 12px;
+}
 .empty {
   padding: 28px 0;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
 }
 .snap {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 6px 12px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .detail-stats {
   margin-top: 0;
@@ -990,23 +1245,23 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
   gap: 12px;
 }
 .group-grid article {
-  background: #f7f9fb;
-  border: 1px solid #d5dee8;
+  background: var(--hy-c-fill, #f7f9fb);
+  border: 1px solid var(--hy-c-border-strong, #d5dee8);
   border-radius: 12px;
   padding: 14px 16px;
 }
 .group-grid strong {
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .group-grid p {
   margin: 6px 0 0;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
   font-size: 13px;
   line-height: 1.5;
 }
 .teacher-board {
-  background: #eef2f6;
-  border: 1px solid #d5dee8;
+  background: var(--hy-c-fill, #eef2f6);
+  border: 1px solid var(--hy-c-border-strong, #d5dee8);
   border-radius: 16px;
   padding: 20px 22px 24px;
 }
@@ -1017,21 +1272,208 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
   margin: 16px 0 18px;
 }
 .teacher-metrics article {
-  background: #f7f9fb;
-  border: 1px solid #d5dee8;
+  background: var(--hy-c-fill, #f7f9fb);
+  border: 1px solid var(--hy-c-border-strong, #d5dee8);
   border-radius: 12px;
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-.teacher-metrics span {
+.clickable-card {
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.clickable-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-color: #165dff !important;
+}
+.tm-hint {
+  font-size: 13px;
+  color: #8f959e;
+  font-weight: normal;
+}
+.clickable-group-card {
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.clickable-group-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-color: #165dff !important;
+}
+.clickable-group-card.is-selected {
+  border-color: #165dff !important;
+  background-color: #f2f7ff !important;
+  box-shadow: 0 0 0 2px rgba(22, 93, 255, 0.25) !important;
+}
+.group-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.group-filter-tip {
+  font-size: 12px;
+  color: #165dff;
+}
+.group-filter-tip.is-active {
+  color: #165dff;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.drilldown-breadcrumb-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: #f7f8fa;
+  border-radius: 6px;
+  border: 1px solid #e5e6eb;
+}
+.bc-lead {
+  font-size: 13px;
   color: #4e5969;
+  font-weight: 500;
+}
+.bc-link {
+  color: #4e5969;
+  text-decoration: none;
+  font-size: 13px;
+  transition: color 0.15s ease;
+}
+.bc-active-link {
+  color: #165dff !important;
+  font-weight: 500;
+  cursor: pointer;
+}
+.bc-active-link:hover {
+  text-decoration: underline;
+}
+.bc-current {
+  color: #1d2129;
+  font-weight: 600;
+  font-size: 13px;
+}
+.filter-status-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: #e8f3ff;
+  border: 1px solid #b7d6ff;
+  border-radius: 6px;
+  padding: 10px 16px;
+  margin-bottom: 16px;
+}
+.fsb-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.fsb-icon {
+  font-size: 16px;
+  color: #165dff;
+}
+.fsb-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d2129;
+}
+.fsb-count {
+  font-size: 12px;
+  color: #4e5969;
+  margin-left: 4px;
+}
+.fsb-count strong {
+  color: #165dff;
+}
+.fsb-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.fsb-close-circle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.05);
+  color: #4e5969;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.fsb-close-circle:hover {
+  background: rgba(0, 0, 0, 0.12);
+  color: #1d2129;
+}
+.weak-tag-group {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.weak-title {
+  font-size: 12px;
+  color: #646a73;
+}
+.clickable-weak-tag {
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.clickable-weak-tag:hover {
+  opacity: 0.82;
+}
+.empty-weak-tip {
+  color: #8f959e !important;
+  font-size: 12px !important;
+}
+.expand-tasks-wrap {
+  padding: 8px 16px;
+  background: #f7f8fa;
+  border-radius: 8px;
+}
+.snap-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px dashed #e5e6eb;
+}
+.snap-row:last-child {
+  border-bottom: none;
+}
+.snap-title {
+  font-size: 13px;
+  color: #1f2329;
+  font-weight: 500;
+}
+.snap-score {
+  font-size: 13px;
+  color: #165dff;
+  font-weight: 600;
+}
+.snap-btn {
+  margin-left: auto;
+}
+.teacher-metrics span {
+  color: var(--hy-c-text-2, #4e5969);
   font-size: 13px;
 }
 .teacher-metrics strong {
   font-size: 22px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .tm-label {
   display: flex;
@@ -1039,7 +1481,7 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
   justify-content: space-between;
 }
 .tm-help {
-  color: #9aa1af;
+  color: var(--hy-c-text-3, #9aa1af);
   cursor: pointer;
   font-size: 13px;
   transition: color 0.15s ease;
@@ -1050,30 +1492,30 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
 .review-guide {
   margin: 0 0 12px;
   padding: 10px 14px;
-  background: #f7f9fb;
-  border: 1px solid #dfe3ea;
+  background: var(--hy-c-fill, #f7f9fb);
+  border: 1px solid var(--hy-c-border-strong, #dfe3ea);
   border-radius: 8px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   font-size: 14px;
   line-height: 1.6;
 }
 .teacher-board :deep(.el-tabs--border-card) {
-  background: #eef2f6;
-  border-color: #d5dee8;
+  background: var(--hy-c-fill, #eef2f6);
+  border-color: var(--hy-c-border-strong, #d5dee8);
   box-shadow: none;
 }
 .teacher-board :deep(.el-tabs--border-card > .el-tabs__header) {
   background: #e4eaf1;
-  border-bottom-color: #d5dee8;
+  border-bottom-color: var(--hy-c-border-strong, #d5dee8);
 }
 .teacher-board :deep(.el-tabs--border-card > .el-tabs__content) {
-  background: #eef2f6;
+  background: var(--hy-c-fill, #eef2f6);
 }
 .teacher-board :deep(.el-table),
 .teacher-board :deep(.el-table tr),
 .teacher-board :deep(.el-table th.el-table__cell),
 .teacher-board :deep(.el-table td.el-table__cell) {
-  background: #f7f9fb;
+  background: var(--hy-c-fill, #f7f9fb);
 }
 .order-arrows {
   display: inline-flex;
@@ -1085,10 +1527,10 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
   width: 26px;
   height: 18px;
   padding: 0;
-  border: 1px solid #c9cdd4;
+  border: 1px solid var(--hy-c-border-strong, #c9cdd4);
   border-radius: 4px;
-  background: #ffffff;
-  color: #1d2129;
+  background: var(--hy-c-surface, #ffffff);
+  color: var(--hy-c-text, #1d2129);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1097,21 +1539,21 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
 .order-arrow:hover:not(:disabled) {
   color: #1677ff;
   border-color: #1677ff;
-  background: #f0f6ff;
+  background: var(--hy-c-primary-soft, #f0f6ff);
 }
 .order-arrow:disabled {
-  color: #c9cdd4;
-  background: #f2f3f5;
+  color: var(--hy-c-text-4, #c9cdd4);
+  background: var(--hy-c-fill, #f2f3f5);
   cursor: not-allowed;
 }
 .teacher-board :deep(.task-order-table tr.is-just-moved td.el-table__cell) {
-  background: #d6e8ff !important;
+  background: var(--hy-c-primary-soft, #d6e8ff) !important;
   box-shadow: inset 4px 0 0 #1677ff;
   animation: task-row-flash 0.45s ease;
 }
 @keyframes task-row-flash {
   0% { background: #7eb6ff; }
-  100% { background: #d6e8ff; }
+  100% { background: var(--hy-c-primary-soft, #d6e8ff); }
 }
 @media (max-width: 800px) {
   .teacher-metrics {

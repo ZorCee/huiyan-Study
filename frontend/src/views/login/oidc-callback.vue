@@ -102,13 +102,13 @@ const backToLogin = () => router.replace('/login')
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, #f5f9ff 0%, #ffffff 60%);
+  background: linear-gradient(180deg, var(--hy-c-page, #f5f9ff) 0%, var(--hy-c-surface, #ffffff) 60%);
 }
 .cb-card {
   min-width: 320px;
   padding: 32px 40px;
   text-align: center;
-  background: #fff;
+  background: var(--hy-c-surface, #fff);
   border-radius: 10px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.06);
 }
@@ -118,7 +118,7 @@ const backToLogin = () => router.replace('/login')
 }
 .msg {
   margin-top: 14px;
-  color: #606266;
+  color: var(--hy-c-text-2, #606266);
   font-size: 14px;
 }
 @keyframes rotate {

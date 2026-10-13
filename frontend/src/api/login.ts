@@ -258,7 +258,7 @@ export const uploadAvatar = async (file: File): Promise<AvatarUploadResult> => {
 export const getUserSetting = async (): Promise<UserSetting> => {
   const raw = await http.get<any>('/user/setting')
   return {
-    theme: (raw?.theme || 'light') as ThemeMode,
+    theme: (raw?.theme || 'auto') as ThemeMode,
     fontSize: (raw?.font_size || raw?.fontSize || 'normal') as FontSizeMode,
     language: raw?.language || 'zh-CN',
     notifyMessage: raw?.notify_message ?? raw?.notifyMessage ?? true,
@@ -285,7 +285,7 @@ export const updateUserSetting = async (
     successText: '配置已保存'
   })
   return {
-    theme: (raw?.theme || 'light') as ThemeMode,
+    theme: (raw?.theme || 'auto') as ThemeMode,
     fontSize: (raw?.font_size || raw?.fontSize || 'normal') as FontSizeMode,
     language: raw?.language || 'zh-CN',
     notifyMessage: raw?.notify_message ?? raw?.notifyMessage ?? true,

@@ -561,7 +561,7 @@ const submitCustomBlank = async () => {
 }
 .card-exp {
   font-size: 12px;
-  color: #909399;
+  color: var(--hy-c-text-3, #909399);
   line-height: 1.5;
   margin: 0;
 }

@@ -231,7 +231,7 @@ const onSubmit = async () => {
 }
 .hint {
   margin-left: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 12px;
 }
 .files-grid {
@@ -241,10 +241,10 @@ const onSubmit = async () => {
   gap: 8px;
 }
 .file-cell {
-  border: 1px solid #e5e6eb;
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 6px;
   overflow: hidden;
-  background: #fafbfc;
+  background: var(--hy-c-fill, #fafbfc);
   display: flex;
   flex-direction: column;
 }
@@ -260,18 +260,18 @@ const onSubmit = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 12px;
   background: #2a2a2a;
-  color: #c9cdd4;
+  color: var(--hy-c-text-4, #c9cdd4);
 }
 .file-meta {
   padding: 4px 6px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #fff;
-  border-top: 1px solid #f0f1f3;
+  background: var(--hy-c-surface, #fff);
+  border-top: 1px solid var(--hy-c-border, #f0f1f3);
 }
 .fname {
   font-size: 12px;

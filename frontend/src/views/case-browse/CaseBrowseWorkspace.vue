@@ -8,7 +8,9 @@ import {
   Share,
   UploadFilled,
   Delete,
-  EditPen
+  EditPen,
+  ArrowDown,
+  FolderOpened
 } from '@element-plus/icons-vue'
 import { CaseBrowseApi, CaseImageApi, PracticeApi, RotationApi } from '@/api'
 import type { PageResult } from '@/utils/request'
@@ -64,7 +66,8 @@ const filter = reactive<CaseBrowseApi.CaseBrowseQuery>({
   creatorRole: '',
   startTime: '',
   endTime: '',
-  onlyIncomplete: false
+  onlyIncomplete: false,
+  qualityLevel: ''
 })
 
 const pagination = reactive({ page: 1, pageSize: 20 })
@@ -106,6 +109,7 @@ const onReset = () => {
   filter.archiveStatus = ''
   filter.creatorRole = ''
   filter.onlyIncomplete = false
+  filter.qualityLevel = ''
   filter.startTime = ''
   filter.endTime = ''
   pagination.page = 1
@@ -187,23 +191,48 @@ const joinTraining = async (row: Item) => {
   }
   // 1) 归档病例直接拦截
   if (row.archiveStatus === 'ARCHIVED') {
-    ElMessage.warning('该病例已归档，无法加入实训')
+    ElMessage.warning('该病例已归档，无法开放给学员练习')
     return
   }
-  // 2) 已加入：以数据库字段为准，不再看本地缓存
+  // 2) 已开放：以数据库字段为准，不再看本地缓存
   if (row.isTrainCase) {
-    ElMessage.info('该病例已在实训库中，无需重复添加')
+    ElMessage.info('该病例已开放给全体学员练习')
     return
   }
   // 3) 防重复点击：loading 中直接返回
   if (joinStore.isJoining(row.id)) return
+  // 4) 未发布：后端不再顺带发布，避免草稿金标准被学员看到
+  if (!row.isPublished) {
+    try {
+      await ElMessageBox.confirm(
+        '这例的金标准还是草稿，需要先发布才能开放给学员。是否现在去「完善金标准」？',
+        '尚未发布',
+        { type: 'info', confirmButtonText: '去完善金标准', cancelButtonText: '稍后' }
+      )
+    } catch {
+      return
+    }
+    if (canEditGold(row)) openGold(row)
+    else ElMessage.warning('当前角色无权编辑这例的金标准')
+    return
+  }
+  // 5) 影响全体学员，先确认
+  try {
+    await ElMessageBox.confirm(
+      '开放后所有学员都能在自主练习、抽题和阅片中看到这例，它也可以被选进考试和轮转任务。',
+      '开放给全体学员练习',
+      { type: 'warning', confirmButtonText: '确认开放', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
 
   joinStore.setJoining(row.id, true)
   try {
     const res = await CaseBrowseApi.joinTrainingCase(row.id)
     const detail = res.detail
     if (!detail || detail.isTrainCase !== true) {
-      ElMessage.error('加入实训没有写入数据库，请稍后重试')
+      ElMessage.error('开放没有写入数据库，请稍后重试')
       return
     }
     row.isTrainCase = true
@@ -212,13 +241,15 @@ const joinTraining = async (row: Item) => {
     if (detailData.value?.id === row.id) {
       detailData.value = { ...detailData.value, isTrainCase: true, isPublished: detail.isPublished }
     }
-    ElMessage.success('病例已成功加入实训，学员可在自主练习中使用')
+    ElMessage.success('已开放给全体学员练习')
   } catch (err: any) {
     const status = err?.response?.status
     const msg: string = err?.message || ''
 
     if (status === 403) {
-      ElMessage.error('当前角色无权将病例加入实训')
+      ElMessage.error('当前角色无权开放病例')
+    } else if (status === 400 && /尚未发布/.test(msg)) {
+      ElMessage.warning('该病例金标准尚未发布，请先在「完善金标准」中发布')
     } else if (
       status === 409 ||
       /已加入|已存在|已在实训|already|duplicate/i.test(msg)
@@ -226,9 +257,9 @@ const joinTraining = async (row: Item) => {
       // 兼容未来后端返回的「重复」语义
       joinStore.markJoined(row.id)
       row.isTrainCase = true
-      ElMessage.info('该病例已在实训库中，无需重复添加')
+      ElMessage.info('该病例已开放给全体学员练习')
     } else {
-      ElMessage.error('加入实训失败，请稍后重试')
+      ElMessage.error('开放失败，请稍后重试')
     }
   } finally {
     joinStore.setJoining(row.id, false)
@@ -245,9 +276,9 @@ const leaveTraining = async (row: Item) => {
   if (joinStore.isJoining(row.id)) return
   try {
     await ElMessageBox.confirm(
-      '取消后会写入数据库：学员不能再练习这例，今日学习里的这项必做也会去掉。',
-      '取消加入实训',
-      { type: 'warning', confirmButtonText: '取消加入', cancelButtonText: '保留' }
+      '停止后所有学员都不能再练习这例，今日学习里的这项必做也会去掉。已发出的临时分享不受影响。',
+      '停止开放',
+      { type: 'warning', confirmButtonText: '停止开放', cancelButtonText: '保留' }
     )
   } catch {
     return
@@ -264,11 +295,11 @@ const leaveTraining = async (row: Item) => {
     if (detailData.value?.id === row.id) {
       detailData.value = { ...detailData.value, isTrainCase: false }
     }
-    ElMessage.success('已取消加入实训，学员练习和今日任务里都不再出现这例')
+    ElMessage.success('已停止开放，学员练习和今日任务里都不再出现这例')
   } catch (err: any) {
     const status = err?.response?.status
-    if (status === 403) ElMessage.error('当前角色无权取消加入实训')
-    else ElMessage.error('取消加入实训失败，请稍后重试')
+    if (status === 403) ElMessage.error('当前角色无权停止开放')
+    else ElMessage.error('停止开放失败，请稍后重试')
   } finally {
     joinStore.setJoining(row.id, false)
   }
@@ -545,7 +576,18 @@ const onShareTemp = (row: Item) => {
   shareDialogVisible.value = true
 }
 
-const onShareSubmit = (row: Item) => {
+const onShareSubmit = async (row: Item) => {
+  if (row.isTrainCase) {
+    try {
+      await ElMessageBox.confirm(
+        '这例已经开放给全体学员练习。提交到公共教学库并审核通过后，会另外生成一份脱敏副本，学员练习库里将出现两份相同的病例。建议先「停止开放」，或确认确实需要副本。',
+        '可能出现重复病例',
+        { type: 'warning', confirmButtonText: '仍要提交', cancelButtonText: '取消' }
+      )
+    } catch {
+      return
+    }
+  }
   shareDialogType.value = 'PERMANENT'
   shareDialogCase.value = { id: row.id, title: row.title || row.caseNo || '' }
   shareDialogVisible.value = true
@@ -728,7 +770,7 @@ const onShareSubmit = (row: Item) => {
               <span class="muted small">{{ row.createdAt || '—' }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="500" fixed="right">
+          <el-table-column label="操作" width="440" fixed="right">
             <template #default="{ row }">
               <el-button text type="primary" size="small" :icon="View" @click="openDetail(row)">详情</el-button>
               <el-button
@@ -774,62 +816,96 @@ const onShareSubmit = (row: Item) => {
               >
                 看图
               </el-button>
-              <el-button
+              <el-tooltip
                 v-if="canArchive"
-                text
-                size="small"
-                type="primary"
-                :icon="UploadFilled"
-                @click="openImageUpload(row)"
-              >
-                补传影像
-              </el-button>
-              <!-- 归档 / 恢复：后端与处理函数一直都在，只是从未接上按钮，
-                   导致这个功能全系统没有任何入口（遗留清单 D-008） -->
-              <el-button
-                v-if="canArchive"
-                text
-                size="small"
-                :type="row.archiveStatus === 'ARCHIVED' ? 'success' : 'danger'"
-                @click="onArchiveToggle(row)"
-              >
-                {{ row.archiveStatus === 'ARCHIVED' ? '恢复' : '归档' }}
-              </el-button>
-              <el-button
-                v-if="canArchive"
-                text
-                size="small"
-                :type="inTraining(row) ? 'warning' : 'success'"
-                :icon="inTraining(row) ? Delete : Promotion"
-                :loading="joinStore.isJoining(row.id)"
-                :disabled="
-                  joinStore.isJoining(row.id) ||
-                  (!inTraining(row) && row.archiveStatus === 'ARCHIVED')
+                :content="
+                  inTraining(row)
+                    ? '已对全体学员开放练习，点击停止开放'
+                    : row.isPublished
+                      ? '所有学员可见，可用于考试和轮转任务'
+                      : '金标准尚未发布，需先发布才能开放'
                 "
-                @click="inTraining(row) ? leaveTraining(row) : joinTraining(row)"
+                placement="top"
               >
-                {{ inTraining(row) ? '取消加入实训' : '加入实训' }}
-              </el-button>
-              <el-button
-                v-if="canShare && row.archiveStatus !== 'ARCHIVED'"
-                text
-                size="small"
-                type="primary"
-                :icon="Share"
-                @click="onShareTemp(row)"
+                <el-button
+                  text
+                  size="small"
+                  :type="inTraining(row) ? 'warning' : 'success'"
+                  :icon="inTraining(row) ? Delete : Promotion"
+                  :loading="joinStore.isJoining(row.id)"
+                  :disabled="
+                    joinStore.isJoining(row.id) ||
+                    (!inTraining(row) && row.archiveStatus === 'ARCHIVED')
+                  "
+                  @click="inTraining(row) ? leaveTraining(row) : joinTraining(row)"
+                >
+                  {{ inTraining(row) ? '停止开放' : '开放练习' }}
+                </el-button>
+              </el-tooltip>
+              <!-- 低频操作收进「更多」：临时分享 / 提交教学库 / 补传影像 / 归档 -->
+              <el-dropdown
+                v-if="canArchive || canShare"
+                trigger="click"
+                placement="bottom-end"
               >
-                分享实训
-              </el-button>
-              <el-button
-                v-if="canShare && row.archiveStatus !== 'ARCHIVED'"
-                text
-                size="small"
-                type="warning"
-                :icon="Promotion"
-                @click="onShareSubmit(row)"
-              >
-                转为教学
-              </el-button>
+                <el-button text size="small" type="primary">
+                  更多<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <div class="more-guide">
+                    开放 = 全体学员可练；临时分享 = 指定人，会过期；教学库 = 复制副本后审核
+                  </div>
+                  <el-dropdown-menu>
+                    <el-dropdown-item
+                      v-if="canShare && row.archiveStatus !== 'ARCHIVED'"
+                      :icon="Share"
+                      @click="onShareTemp(row)"
+                    >
+                      <div class="more-item">
+                        <span>临时分享给指定学员</span>
+                        <span class="more-desc">脱敏快照，到期失效，不进练习库</span>
+                      </div>
+                    </el-dropdown-item>
+                    <el-dropdown-item
+                      v-if="canShare && row.archiveStatus !== 'ARCHIVED'"
+                      :icon="Promotion"
+                      @click="onShareSubmit(row)"
+                    >
+                      <div class="more-item">
+                        <span>提交到公共教学库</span>
+                        <span class="more-desc">复制一份脱敏副本，审核后全体可练</span>
+                      </div>
+                    </el-dropdown-item>
+                    <el-dropdown-item
+                      v-if="canArchive"
+                      :icon="UploadFilled"
+                      :divided="canShare && row.archiveStatus !== 'ARCHIVED'"
+                      @click="openImageUpload(row)"
+                    >
+                      <div class="more-item">
+                        <span>补传影像</span>
+                        <span class="more-desc">追加或补齐这例的眼底图</span>
+                      </div>
+                    </el-dropdown-item>
+                    <!-- 归档 / 恢复：后端与处理函数一直都在，只是从未接上按钮，
+                         导致这个功能全系统没有任何入口（遗留清单 D-008） -->
+                    <el-dropdown-item
+                      v-if="canArchive"
+                      :icon="FolderOpened"
+                      @click="onArchiveToggle(row)"
+                    >
+                      <div class="more-item">
+                        <span :class="row.archiveStatus === 'ARCHIVED' ? '' : 'danger-text'">
+                          {{ row.archiveStatus === 'ARCHIVED' ? '恢复' : '归档' }}
+                        </span>
+                        <span class="more-desc">
+                          {{ row.archiveStatus === 'ARCHIVED' ? '恢复为在用病例' : '归档后不能阅片或开放练习' }}
+                        </span>
+                      </div>
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
             </template>
           </el-table-column>
         </el-table>
@@ -906,19 +982,40 @@ const onShareSubmit = (row: Item) => {
 </template>
 
 <style scoped>
+.more-guide {
+  max-width: 260px;
+  padding: 8px 16px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.more-item {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.4;
+  padding: 2px 0;
+}
+.more-desc {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.danger-text {
+  color: var(--el-color-danger);
+}
 .derived {
   color: #7cc4ff;
 }
 
 /* 盲训态占位：答案型字段在作答前不展示 */
 .blinded-hint {
-  color: #909399;
+  color: var(--hy-c-text-3, #909399);
   font-size: 12px;
 }
 
 .case-browse-page {
   min-height: 100vh;
-  background: #edf1f6;
+  background: var(--hy-c-page, #edf1f6);
   display: flex;
   flex-direction: column;
 }
@@ -936,8 +1033,8 @@ const onShareSubmit = (row: Item) => {
 .page-header {
   height: 56px;
   padding: 0 24px;
-  background: #ffffff;
-  border-bottom: 1px solid #dfe3ea;
+  background: var(--hy-c-surface, #ffffff);
+  border-bottom: 1px solid var(--hy-c-border-strong, #dfe3ea);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -954,7 +1051,7 @@ const onShareSubmit = (row: Item) => {
 .divider {
   width: 1px;
   height: 18px;
-  background: #e5e6eb;
+  background: var(--hy-c-fill-2, #e5e6eb);
 }
 .page-title {
   display: inline-flex;
@@ -962,7 +1059,7 @@ const onShareSubmit = (row: Item) => {
   gap: 6px;
   font-size: 15px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 
 .page-main {
@@ -975,8 +1072,8 @@ const onShareSubmit = (row: Item) => {
 }
 
 .card {
-  background: #ffffff;
-  border: 1px solid #dfe3ea;
+  background: var(--hy-c-surface, #ffffff);
+  border: 1px solid var(--hy-c-border-strong, #dfe3ea);
   border-radius: 12px;
   padding: 18px 20px;
   margin-bottom: 18px;
@@ -1009,7 +1106,7 @@ const onShareSubmit = (row: Item) => {
 }
 .case-sn {
   font-family: 'Consolas', 'Monaco', monospace;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 11px;
   margin-top: 2px;
 }
@@ -1020,7 +1117,7 @@ const onShareSubmit = (row: Item) => {
   gap: 2px;
 }
 .p-name {
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   font-size: 13px;
 }
 .p-age {
@@ -1028,12 +1125,12 @@ const onShareSubmit = (row: Item) => {
 }
 .case-title {
   font-weight: 500;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .case-desc {
   margin-top: 2px;
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -1042,7 +1139,7 @@ const onShareSubmit = (row: Item) => {
 }
 
 .muted {
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   font-size: 13px;
 }
 .muted.small {

@@ -7,6 +7,7 @@ import { ElMessage } from 'element-plus'
 import { Bell, Refresh, View } from '@element-plus/icons-vue'
 import { CommonApi } from '@/api'
 import { isNoticeRead } from '@/utils/login-notice'
+import { requestInboxRefresh } from '@/composables/useInboxSignals'
 
 const list = ref<CommonApi.NotificationItem[]>([])
 const unread = ref(0)
@@ -37,6 +38,7 @@ const markRead = async (item: CommonApi.NotificationItem) => {
     item.read = true
     item.isRead = true
     unread.value = Math.max(0, unread.value - 1)
+    requestInboxRefresh()
   } catch {
     /* 静默 */
   }
@@ -54,6 +56,7 @@ const markAll = async () => {
       n.isRead = true
     })
     unread.value = 0
+    requestInboxRefresh()
   } catch {
     /* 已弹错 */
   }
@@ -158,8 +161,8 @@ onMounted(fetchList)
 
 <style scoped>
 .card {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 12px;
   padding: 18px 20px;
 }
@@ -177,10 +180,10 @@ onMounted(fetchList)
   gap: 8px;
   font-size: 15px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .card-actions { display: flex; gap: 8px; }
-.muted { color: #86909c; font-size: 12px; font-weight: 400; }
+.muted { color: var(--hy-c-text-3, #86909c); font-size: 12px; font-weight: 400; }
 .ml8 { margin-left: 8px; }
 .bold { font-weight: 600; }
 .top {
@@ -193,10 +196,10 @@ onMounted(fetchList)
   margin-right: 6px;
 }
 .unread { color: #f53f3f; font-size: 12px; }
-.empty { padding: 36px 0; text-align: center; color: #c9cdd4; }
+.empty { padding: 36px 0; text-align: center; color: var(--hy-c-text-4, #c9cdd4); }
 .pager { margin-top: 12px; display: flex; justify-content: flex-end; }
-:deep(.unread-row) { background: #f7faff; }
+:deep(.unread-row) { background: var(--hy-c-primary-soft, #f7faff); }
 .detail h3 { margin: 0 0 8px; font-size: 18px; }
-.detail .meta { font-size: 12px; color: #86909c; margin-bottom: 14px; }
+.detail .meta { font-size: 12px; color: var(--hy-c-text-3, #86909c); margin-bottom: 14px; }
 .detail .body { font-size: 14px; line-height: 1.8; white-space: pre-wrap; word-break: break-word; }
 </style>

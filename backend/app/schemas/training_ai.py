@@ -4,7 +4,9 @@
 - camelCase 输出（沿用训练模块基类约定）
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+
+from app.schemas.case_browse import CaseFindingOut
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -33,6 +35,18 @@ class AiProb(_CamelModel):
     value: float = Field(0.0, description="概率 0~1")
 
 
+class AiDiseaseResult(_CamelModel):
+    """某一病种的 AI 结论与金标准对比（一个病例可有多条）"""
+    disease: str = Field(..., description="DR / GLAUCOMA ...")
+    disease_label: str = Field("", description="病种中文名")
+    ai_value: Optional[str] = Field(None, description="AI 结论值；None 表示未判读或未返回")
+    ai_label: str = Field("", description="AI 结论展示文本")
+    gold_value: str = Field("", description="金标准结论值")
+    gold_label: str = Field("", description="金标准展示文本")
+    source: str = Field("", description="金标准来源 MANUAL / DATASET / AI")
+    agree: Optional[bool] = Field(None, description="AI 与金标准是否一致")
+
+
 class AiDiagnosisOut(_CamelModel):
     """实训病例 AI 辅助诊断结果"""
     case_id: str = Field(..., description="病例编号 case_no")
@@ -56,6 +70,9 @@ class AiDiagnosisOut(_CamelModel):
     gold_grade: Optional[int] = Field(None, description="金标准 DR 分级（青光眼为空）")
     gold_label: str = Field("", description="金标准展示文本（病种无关）")
     agree_with_gold: Optional[bool] = Field(None, description="AI 结论是否与金标准一致")
+    diseases: list[AiDiseaseResult] = Field(
+        default_factory=list, description="按病种逐条输出的 AI 结论（病例实际涉及的病种）"
+    )
 
     model_name: str = Field("CSU-EYES DR", description="模型名称")
     infer_duration_ms: int = Field(0, description="推理耗时（毫秒）")
@@ -70,6 +87,13 @@ class AiCaseDraftOut(_CamelModel):
     title: str = Field("", description="病例标题")
     is_published: bool = Field(False, description="是否已发布（建案默认草稿）")
     ai: AiDiagnosisOut = Field(..., description="AI 诊断结果")
+    ai_returned: bool = Field(True, description="AI 是否返回了 DR 分级；False 时页面显示「AI 未返回」")
+    findings: List[CaseFindingOut] = Field(default_factory=list, description="各病种结论（含来源与 AI 建议值）")
+    conflicts: List[str] = Field(default_factory=list, description="人工/标题与 AI 不一致的提示")
+    quality: List[dict] = Field(default_factory=list, description="每眼质控结果（键已是 camelCase）")
+    quality_warnings: List[str] = Field(default_factory=list, description="质量较差/放行提示")
+    laterality: List[str] = Field(default_factory=list, description="眼别冲突提示（已确认继续）")
+    quality_override: Optional[dict] = Field(None, description="不可判读人工放行留痕")
 
 
 __all__ = ["AiEyeResult", "AiProb", "AiDiagnosisOut", "AiCaseDraftOut"]

@@ -80,11 +80,13 @@ const routes: RouteRecordRaw[] = [
     path: '/screening',
     component: () => import('@/layout/portals/ScreeningPortal.vue'),
     meta: { scene: 'screening', deniedRoles: ['trainee', 'patient'] },
-    redirect: '/screening/dashboard',
+    // 批量筛查已并入教师门户（/training/screening），旧链接自动跳转，避免切换门户后侧栏整体消失。
+    redirect: '/training/screening',
     children: [
-      { path: 'dashboard', name: 'ScreeningDashboard', component: () => import('@/layout/portals/ScreeningWorkspace.vue'), props: { section: 'upload' }, meta: { title: '批量筛查' } },
-      { path: 'list', name: 'ScreeningList', component: () => import('@/views/screening/case-search.vue'), meta: { title: '病例检索' } },
-      { path: 'profile', name: 'ScreeningProfile', component: () => import('@/views/profile/index.vue'), meta: { title: '个人中心' } }
+      { path: 'dashboard', redirect: '/training/screening' },
+      // 筛查记录检索与病例中心数据源不同，本期保留在筛查门户内。
+      { path: 'list', name: 'ScreeningList', component: () => import('@/views/screening/case-search.vue'), meta: { title: '筛查记录检索' } },
+      { path: 'profile', redirect: '/training/profile' }
     ]
   },
 
@@ -109,21 +111,31 @@ const routes: RouteRecordRaw[] = [
         name: 'TrainingCases',
         component: () => import('@/views/case-browse/index.vue'),
         meta: {
-          title: '病例浏览检索',
+          title: '病例中心',
           allowedRoles: ['admin', 'doctor', 'trainee']
+        },
+        // 教学分享已独立成 /training/teaching-share，旧书签跳过去。
+        beforeEnter: (to) => {
+          if (String(to.query.tab || '') !== 'my-shares') return true
+          const { tab: _tab, ...rest } = to.query
+          return { path: '/training/teaching-share', query: rest, replace: true }
         }
       },
       {
         path: 'reading',
         name: 'TrainingReading',
         component: () => import('@/views/reading/index.vue'),
-        meta: { title: '影像阅片工作站' },
+        meta: { title: '双眼阅片工作台' },
         // 侧栏「阅片工作台」只有路径、没有病例编号。从病例库回来时把上次的编号补上，
         // 否则页面没有 caseId，影像请求发不出去。
         beforeEnter: (to) => {
-          if (to.query.caseId || to.query.recordId) return true
           const tab = String(to.query.tab || '')
-          if (tab === 'quality' || tab === 'review') return true
+          // 旧书签 tab=quality 统一改成 tab=review，避免和「图像质控」混淆。
+          if (tab === 'quality') {
+            return { path: to.path, query: { ...to.query, tab: 'review' }, replace: true }
+          }
+          if (to.query.caseId || to.query.recordId) return true
+          if (tab === 'review') return true
           const saved = rememberedReadingCaseId()
           if (!saved) return true
           return {
@@ -161,19 +173,26 @@ const routes: RouteRecordRaw[] = [
         path: 'class',
         name: 'TrainingClass',
         component: () => import('@/views/training/class-students.vue'),
-        meta: { title: '班级学生', allowedRoles: ['admin', 'doctor'] }
+        meta: { title: '班级与学员维护', allowedRoles: ['admin', 'doctor'] }
       },
       {
         path: 'exams',
         name: 'FormalExams',
         component: () => import('@/views/training/exams.vue'),
-        meta: { title: '正式考试', allowedRoles: ['admin', 'doctor'] }
+        meta: { title: '正式考核与试卷', allowedRoles: ['admin', 'doctor'] }
       },
       {
         path: 'teaching-share',
         name: 'TeachingShare',
-        redirect: { path: '/training/cases', query: { tab: 'my-shares' } },
-        meta: { title: '我的教学分享', allowedRoles: ['admin', 'doctor'] }
+        component: () => import('@/views/training/teaching-share.vue'),
+        meta: { title: '教学分享', allowedRoles: ['admin', 'doctor'] }
+      },
+      {
+        path: 'screening',
+        name: 'TrainingScreening',
+        component: () => import('@/layout/portals/ScreeningWorkspace.vue'),
+        props: { section: 'upload' },
+        meta: { title: 'AI 批量筛查', allowedRoles: ['admin', 'doctor'] }
       },
       {
         path: 'ai-builder',
@@ -183,7 +202,7 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'review',
-        redirect: { path: '/training/reading', query: { tab: 'quality' } },
+        redirect: { path: '/training/reading', query: { tab: 'review' } },
         meta: { title: '作业批阅', allowedRoles: ['admin', 'doctor'] }
       },
       {
@@ -197,6 +216,12 @@ const routes: RouteRecordRaw[] = [
         name: 'TrainingLearning',
         component: () => import('@/views/learning/index.vue'),
         meta: { title: '学习资料与笔记' }
+      },
+      {
+        path: 'admin-notes',
+        name: 'TrainingAdminNotes',
+        component: () => import('@/views/learning/admin-notes.vue'),
+        meta: { title: '笔记管理（审核视图）', allowedRoles: ['admin'] }
       },
       {
         path: 'notices',

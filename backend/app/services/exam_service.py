@@ -87,10 +87,15 @@ def announce_exam_published(db: Session, teacher: User, paper: ExamPaper) -> Non
         return
     name = _person_name(teacher) or "老师"
     count = len(paper.case_ids or [])
-    title = f"正式考试：{paper.title}"
+    label = audience_label(db, paper)
+    scoped = (paper.audience_scope or "ALL").upper() != "ALL"
+    title = f"正式考试：{paper.title}" + (f"（{label}）" if scoped else "")
     summary = f"{name} 发起了「{paper.title}」，共 {count} 题，限时 {paper.duration_minutes} 分钟。"
+    if scoped:
+        summary += f"受考对象：{label}。"
     content = (
         f"{name} 发起了正式考试「{paper.title}」。\n"
+        f"受考对象：{label}。不在范围内的学员在考试列表里看不到这场考试。\n"
         f"共 {count} 题，限时 {paper.duration_minutes} 分钟，合格线 {paper.pass_score} 分。\n"
         "请从「今日学习」或「病例学习」进入作答。\n"
         f"{marker}"
@@ -109,15 +114,20 @@ def announce_exam_published(db: Session, teacher: User, paper: ExamPaper) -> Non
 def notify_exam_handed(db: Session, student: User, paper: ExamPaper) -> None:
     """学员交完卷后，通知老师和管理员是谁交的。"""
     rows = _sessions(db, paper.id, student.id)
-    if not rows or any(row.status == PracticeStatusEnum.DRAFT.value for row in rows):
+    if not rows:
         return
-    marker = f"交卷记录：{paper.id}-{student.id}"
+    round_no = max((getattr(r, "attempt_round", 1) or 1) for r in rows)
+    latest_rows = [r for r in rows if (getattr(r, "attempt_round", 1) or 1) == round_no]
+    if any(row.status == PracticeStatusEnum.DRAFT.value for row in latest_rows):
+        return
+    marker = f"交卷记录：{paper.id}-{student.id}-r{round_no}"
     exists = db.query(Notice.id).filter(Notice.content.like(f"%{marker}%")).first()
     if exists:
         return
     name = _person_name(student) or "学员"
-    title = f"{name} 已交卷：{paper.title}"
-    summary = f"{name}（{student.username}）已完成正式考试「{paper.title}」。"
+    round_text = f"（第{round_no}次作答）" if round_no > 1 else ""
+    title = f"{name} 已交卷：{paper.title}{round_text}"
+    summary = f"{name}（{student.username}）已完成正式考试「{paper.title}」{round_text}。"
     content = f"{summary}\n{marker}"
     _announce(
         db,
@@ -138,16 +148,119 @@ def _paper_or_404(db: Session, paper_id: int) -> ExamPaper:
 
 
 def _pool(db: Session) -> List[TrainingCase]:
+    from app.services import case_quality
+    q = db.query(TrainingCase).filter(
+        TrainingCase.is_published == True,  # noqa: E712
+        TrainingCase.is_train_case == True,  # noqa: E712
+        TrainingCase.archive_status == CaseArchiveStatusEnum.ACTIVE.value,
+    )
     return (
-        db.query(TrainingCase)
-        .filter(
-            TrainingCase.is_published == True,  # noqa: E712
-            TrainingCase.is_train_case == True,  # noqa: E712
-            TrainingCase.archive_status == CaseArchiveStatusEnum.ACTIVE.value,
-        )
+        case_quality.exclude_low_quality(q)
         .order_by(TrainingCase.id.asc())
         .all()
     )
+
+
+AUDIENCE_SCOPES = ("ALL", "YEAR", "BATCH", "GROUP", "PEOPLE")
+AUDIENCE_LABELS = {"YEAR": "年级", "BATCH": "轮转批次", "GROUP": "带教组", "PEOPLE": "指定学员"}
+
+
+def _audience_field(scope: str):
+    return {
+        "YEAR": "study_year",
+        "BATCH": "rotation_batch",
+        "GROUP": "mentor_group",
+    }.get(scope, "")
+
+
+def _active_students(db: Session) -> List[User]:
+    return (
+        db.query(User)
+        .join(Role, User.role_id == Role.id)
+        .filter(Role.code == RoleEnum.STUDENT.value, User.is_active == True)  # noqa: E712
+        .order_by(User.id.asc())
+        .all()
+    )
+
+
+def _scope_reaches(scope: str, values: list, ids: list, user: User) -> bool:
+    scope = (scope or "ALL").upper()
+    if scope == "ALL":
+        return True
+    if scope == "PEOPLE":
+        return int(user.id) in {int(item) for item in ids or []}
+    field = _audience_field(scope)
+    if not field:
+        return False
+    own = (getattr(user, field, "") or "").strip()
+    return bool(own) and own in {str(item).strip() for item in values or []}
+
+
+def paper_reaches(paper: ExamPaper, user: User) -> bool:
+    """这名学员是不是这场考试的受考对象。老师、管理员不受限制。"""
+    if _is_teacher_or_admin(user):
+        return True
+    return _scope_reaches(
+        getattr(paper, "audience_scope", None) or "ALL",
+        getattr(paper, "audience_values", None) or [],
+        getattr(paper, "audience_ids", None) or [],
+        user,
+    )
+
+
+def audience_students(db: Session, paper: ExamPaper) -> List[User]:
+    return [student for student in _active_students(db) if paper_reaches(paper, student)]
+
+
+def _normalize_audience(db: Session, params: ExamCreate) -> tuple:
+    """校验受考对象，返回 (scope, values, ids, 目标学员)。一个学员都没有就拒绝发布。"""
+    scope = (params.audience_scope or "ALL").strip().upper()
+    if scope not in AUDIENCE_SCOPES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="受考对象不正确")
+    students = _active_students(db)
+    values: list = []
+    ids: list = []
+    if scope == "PEOPLE":
+        for raw in params.audience_ids or []:
+            number = int(raw)
+            if number not in ids:
+                ids.append(number)
+        if not ids:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请选择受考学员")
+        known = {student.id for student in students}
+        if not set(ids) <= known:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只能选择在用的学员账号")
+    elif scope != "ALL":
+        for raw in params.audience_values or []:
+            text = str(raw or "").strip()[:32]
+            if text and text not in values:
+                values.append(text)
+        if not values:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"请选择{AUDIENCE_LABELS[scope]}",
+            )
+    targets = [student for student in students if _scope_reaches(scope, values, ids, student)]
+    if not targets:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="所选受考对象里没有在用的学员，请先在「班级学生」里填写分组或换一个对象",
+        )
+    return scope, values, ids, targets
+
+
+def audience_label(db: Session, paper: ExamPaper) -> str:
+    scope = (getattr(paper, "audience_scope", None) or "ALL").upper()
+    if scope == "ALL":
+        return "全体学员"
+    if scope == "PEOPLE":
+        ids = [int(item) for item in (paper.audience_ids or [])]
+        rows = db.query(User).filter(User.id.in_(ids)).all() if ids else []
+        names = {row.id: _person_name(row) or str(row.id) for row in rows}
+        shown = [names.get(item, str(item)) for item in ids[:3]]
+        more = f" 等 {len(ids)} 人" if len(ids) > 3 else ""
+        return f"指定学员：{'、'.join(shown)}{more}"
+    return f"{AUDIENCE_LABELS.get(scope, scope)}：{'、'.join(paper.audience_values or [])}"
 
 
 def _sessions(db: Session, paper_id: int, user_id: Optional[int] = None) -> List[PracticeSession]:
@@ -179,7 +292,9 @@ def clock_expired(db: Session, record: PracticeSession, now: Optional[datetime] 
     paper = db.query(ExamPaper).filter(ExamPaper.id == paper_id).first()
     if paper is None or paper.status == "CLOSED":
         return False
-    rows = _sessions(db, paper.id, record.user_id)
+    round_no = getattr(record, "attempt_round", 1) or 1
+    all_rows = _sessions(db, paper.id, record.user_id)
+    rows = [r for r in all_rows if (getattr(r, "attempt_round", 1) or 1) == round_no]
     left = seconds_left(paper, rows, now)
     return left == 0 and _started_at(rows) is not None
 
@@ -203,7 +318,9 @@ def paper_face(db: Session, record: PracticeSession) -> dict:
     paper = db.query(ExamPaper).filter(ExamPaper.id == paper_id).first()
     if paper is None:
         return blank
-    rows = _sessions(db, paper.id, record.user_id)
+    round_no = getattr(record, "attempt_round", 1) or 1
+    all_rows = _sessions(db, paper.id, record.user_id)
+    rows = [r for r in all_rows if (getattr(r, "attempt_round", 1) or 1) == round_no]
     prev = next((row for row in rows if row.exam_index == (record.exam_index or 0) - 1), None)
     allow = bool(paper.allow_back)
     return {
@@ -242,9 +359,11 @@ def guard_back(db: Session, record: PracticeSession) -> None:
     paper = db.query(ExamPaper).filter(ExamPaper.id == paper_id).first()
     if paper is None or paper.allow_back or paper.status == "CLOSED":
         return
+    round_no = getattr(record, "attempt_round", 1) or 1
+    all_rows = _sessions(db, paper.id, record.user_id)
     drafts = [
-        row for row in _sessions(db, paper.id, record.user_id)
-        if row.status == PracticeStatusEnum.DRAFT.value
+        row for row in all_rows
+        if (getattr(row, "attempt_round", 1) or 1) == round_no and row.status == PracticeStatusEnum.DRAFT.value
     ]
     if drafts and record.id != drafts[0].id:
         raise HTTPException(
@@ -269,8 +388,46 @@ def apply_draft(db: Session, record: PracticeSession, params: PracticeSubmitPara
     db.flush()
 
 
-def finalize_user(db: Session, user_id: int, paper_id: int) -> int:
-    """把这名学员还没交的题按已保存的内容评分。返回补交题数。"""
+HAND_IN_REASONS = ("MANUAL", "TIMEOUT", "COLLECT")
+
+
+def _row_blank(row: PracticeSession) -> bool:
+    """这一题学员什么都没填。"""
+    if (row.student_dr_grade or "").strip() or (row.student_diagnosis or "").strip():
+        return False
+    form = row.student_diagnosis_form
+    if isinstance(form, dict) and any(value not in (None, "", [], {}) for value in form.values()):
+        return False
+    if row.student_annotations or row.student_measurements:
+        return False
+    for item in row.text_answers or []:
+        if isinstance(item, dict) and str(item.get("value") or "").strip():
+            return False
+    return True
+
+
+def is_blank_auto_hand_in(rows: List[PracticeSession]) -> bool:
+    """整卷都已交，但没有一题是学员自己交的，并且每题都是空的。
+
+    这是「进来看了一眼就走，到点被系统补交」的白卷，不能算学员考完。
+    旧记录没有交卷原因（''），只要整卷全空也按此判断。
+    """
+    if not rows:
+        return False
+    if any(row.status == PracticeStatusEnum.DRAFT.value for row in rows):
+        return False
+    if any((row.hand_in_reason or "") == "MANUAL" for row in rows):
+        return False
+    return all(_row_blank(row) for row in rows)
+
+
+def finalize_user(db: Session, user_id: int, paper_id: int, reason: str = "MANUAL") -> int:
+    """把这名学员还没交的题按已保存的内容评分。返回补交题数。
+
+    reason 记到每道补交题的 hand_in_reason，用来区分学员交卷和系统补交。
+    """
+    if reason not in HAND_IN_REASONS:
+        raise ValueError(f"unknown hand-in reason: {reason}")
     rows = [
         row for row in _sessions(db, paper_id, user_id)
         if row.status == PracticeStatusEnum.DRAFT.value
@@ -301,6 +458,8 @@ def finalize_user(db: Session, user_id: int, paper_id: int) -> int:
             request_id=f"close-{paper_id}-{row.id}",
         )
         PracticeService.submit(db, owner, saved, _clock=False)
+        row.hand_in_reason = reason
+        db.commit()
         count += 1
     return count
 
@@ -311,7 +470,7 @@ def expire_if_needed(db: Session, record: PracticeSession) -> None:
     if not clock_expired(db, record):
         return
     paper_id = int(record.exam_paper_id or 0)
-    finalize_user(db, record.user_id, paper_id)
+    finalize_user(db, record.user_id, paper_id, reason="TIMEOUT")
     paper = db.query(ExamPaper).filter(ExamPaper.id == paper_id).first()
     student = db.query(User).filter(User.id == record.user_id).first()
     if paper is not None and student is not None:
@@ -335,6 +494,103 @@ class ExamService:
             )
             for case in _pool(db)
         ]
+
+    @staticmethod
+    def audience_options(db: Session, user: User):
+        """发布考试时可选的年级、轮转批次、带教组和学员，带人数。"""
+        _require_teacher(user)
+        from app.schemas.exam import ExamAudienceItem, ExamAudienceOptions, ExamAudienceStudent
+
+        students = _active_students(db)
+
+        def bucket(field: str) -> list:
+            counts: dict = {}
+            for student in students:
+                value = (getattr(student, field, "") or "").strip()
+                if value:
+                    counts[value] = counts.get(value, 0) + 1
+            return [
+                ExamAudienceItem(value=value, label=value, count=count)
+                for value, count in sorted(counts.items())
+            ]
+
+        return ExamAudienceOptions(
+            total=len(students),
+            years=bucket("study_year"),
+            batches=bucket("rotation_batch"),
+            groups=bucket("mentor_group"),
+            students=[
+                ExamAudienceStudent(
+                    id=student.id,
+                    name=_person_name(student) or f"学员{student.id}",
+                    username=student.username or "",
+                    study_year=student.study_year or "",
+                    rotation_batch=student.rotation_batch or "",
+                    mentor_group=student.mentor_group or "",
+                )
+                for student in students
+            ],
+        )
+
+    @staticmethod
+    def preview(db: Session, user: User, case_ids: List[int]):
+        """按学员进入考试时的同一套规则，列出每个病例会出哪些文字题。"""
+        _require_teacher(user)
+        from app.schemas.exam import ExamPreviewCase, ExamPreviewOut, ExamPreviewQuestion
+        from app.services.question_service import QuestionService
+        from app.services.practice_service import TEXT_PAPER_SIZE
+
+        type_text = {
+            "IMAGE_LEVEL": "逐图题",
+            "GUIDELINE_BLANK": "指南挖空题",
+            "KNOWLEDGE": "知识点题",
+            "CHOICE": "选择题",
+        }
+        ids: list = []
+        for raw in case_ids or []:
+            number = int(raw)
+            if number not in ids:
+                ids.append(number)
+        if len(ids) > 20:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="一场考试最多 20 题")
+        cases = db.query(TrainingCase).filter(TrainingCase.id.in_(ids)).all() if ids else []
+        by_id = {case.id: case for case in cases}
+        out = ExamPreviewOut()
+        for case_id in ids:
+            case = by_id.get(case_id)
+            if case is None:
+                continue
+            own, generics = QuestionService.plan_for_case(db, case_id, TEXT_PAPER_SIZE)
+            legacy = max(0, TEXT_PAPER_SIZE - len(own) - len(generics))
+            questions = [
+                ExamPreviewQuestion(
+                    id=str(q.id),
+                    stem=(q.stem or "")[:200],
+                    question_type=q.question_type or "",
+                    type_text=type_text.get(q.question_type, q.question_type or ""),
+                    source=source,
+                )
+                for source, group in (("OWN", own), ("GENERIC", generics))
+                for q in group
+            ]
+            for item in questions:
+                out.type_counts[item.type_text] = out.type_counts.get(item.type_text, 0) + 1
+            if legacy:
+                out.type_counts["常规题（随机）"] = out.type_counts.get("常规题（随机）", 0) + legacy
+            out.cases.append(ExamPreviewCase(
+                case_id=case.id,
+                case_no=case.case_no or "",
+                title=case.title or "",
+                own_count=len(own),
+                generic_count=len(generics),
+                legacy_count=legacy,
+                questions=questions,
+            ))
+            out.own_total += len(own)
+            out.generic_total += len(generics)
+            out.legacy_total += legacy
+        out.total_questions = out.own_total + out.generic_total + out.legacy_total
+        return out
 
     @staticmethod
     def create(db: Session, user: User, params: ExamCreate) -> ExamPaperOut:
@@ -367,7 +623,13 @@ class ExamService:
             category = (params.category or "").strip()
             difficulty = (params.difficulty or "").strip()
             if category:
-                matched = [case for case in matched if case.category == category]
+                from app.services import case_findings
+
+                with_disease = case_findings.case_ids_with_disease(db, category)
+                matched = [
+                    case for case in matched
+                    if case_findings.has_disease(case, category, with_disease)
+                ]
             if difficulty:
                 matched = [case for case in matched if case.difficulty == difficulty]
             want = int(params.question_count or 0)
@@ -383,7 +645,11 @@ class ExamService:
             else:
                 picked = _pick_across_grades(matched, want)
             ids = [case.id for case in picked]
+        scope, audience_values, audience_ids, _targets = _normalize_audience(db, params)
         paper = ExamPaper(
+            audience_scope=scope,
+            audience_values=audience_values,
+            audience_ids=audience_ids,
             title=title,
             teacher_id=user.id,
             status="OPEN",
@@ -410,7 +676,7 @@ class ExamService:
         visible = []
         for row in rows:
             mine = _sessions(db, row.id, user.id)
-            if row.status == "OPEN" or mine:
+            if mine or (row.status == "OPEN" and paper_reaches(row, user)):
                 visible.append(ExamService._out(db, row, user))
         return visible
 
@@ -425,27 +691,89 @@ class ExamService:
             by_user.setdefault(row.user_id, []).append(row)
         handed = sum(
             1 for rows in by_user.values()
-            if rows and all(row.status != PracticeStatusEnum.DRAFT.value for row in rows)
+            if rows and any(
+                all(row.status != PracticeStatusEnum.DRAFT.value for row in r_rows)
+                for r_rows in [
+                    [r for r in rows if (getattr(r, "attempt_round", 1) or 1) == rnd]
+                    for rnd in {getattr(r, "attempt_round", 1) or 1 for r in rows}
+                ]
+            )
         )
         mine_rows = by_user.get(user.id, [])
+        max_attempts = int(getattr(paper, "max_attempts", 2) or 2)
+        retake_policy = getattr(paper, "retake_policy", "BEST") or "BEST"
+
+        rounds_map = {}
+        for row in mine_rows:
+            rnd = getattr(row, "attempt_round", 1) or 1
+            rounds_map.setdefault(rnd, []).append(row)
+
+        completed_rounds = [
+            rnd for rnd, r_rows in rounds_map.items()
+            if all(row.status != PracticeStatusEnum.DRAFT.value for row in r_rows)
+        ]
+
+        latest_round = max(rounds_map.keys()) if rounds_map else 1
+        latest_rows = rounds_map.get(latest_round, [])
+
         if not mine_rows:
             mine = "ABSENT" if paper.status == "CLOSED" else "READY"
-        elif any(row.status == PracticeStatusEnum.DRAFT.value for row in mine_rows):
+            current_round = 1
+            remaining_attempts = max_attempts
+            can_retake = False
+            retake_hint = ""
+        elif any(row.status == PracticeStatusEnum.DRAFT.value for row in latest_rows):
             mine = "DOING"
+            current_round = latest_round
+            remaining_attempts = max(0, max_attempts - latest_round)
+            can_retake = False
+            retake_hint = "当前轮次正在作答中"
+        elif is_blank_auto_hand_in(latest_rows):
+            mine = "TIMEOUT_BLANK"
+            current_round = latest_round
+            remaining_attempts = max(0, max_attempts - len(completed_rounds))
+            if paper.status == "OPEN" and remaining_attempts > 0:
+                can_retake = True
+                retake_hint = f"超时未作答，可重新考试（剩余 {remaining_attempts} 次机会）"
+            elif paper.status == "CLOSED":
+                can_retake = False
+                retake_hint = "考试已收卷，不可重考"
+            else:
+                can_retake = False
+                retake_hint = f"已达作答上限（最多 {max_attempts} 次）"
         else:
             mine = "HANDED"
+            current_round = latest_round
+            remaining_attempts = max(0, max_attempts - len(completed_rounds))
+            if paper.status == "OPEN" and remaining_attempts > 0:
+                can_retake = True
+                retake_hint = f"已交卷，可重新作答（剩余 {remaining_attempts} 次机会）"
+            elif paper.status == "CLOSED":
+                can_retake = False
+                retake_hint = "考试已收卷，等老师公布最终结果"
+            else:
+                can_retake = False
+                retake_hint = f"已达重考上限（最多作答 {max_attempts} 次）"
+
         mine_score = None
         mine_passed = None
-        if mine == "HANDED":
-            nums = [
-                round(float(row.score_total or 0), 2)
-                for row in mine_rows
-                if row.status != PracticeStatusEnum.DRAFT.value
-            ]
-            if nums:
-                average = round(sum(nums) / len(nums), 2)
-                mine_score = average
-                mine_passed = average >= int(paper.pass_score or 0)
+        if completed_rounds:
+            round_scores = {}
+            for rnd in completed_rounds:
+                nums = [
+                    round(float(row.score_total or 0), 2)
+                    for row in rounds_map[rnd]
+                    if row.status != PracticeStatusEnum.DRAFT.value
+                ]
+                if nums:
+                    round_scores[rnd] = round(sum(nums) / len(nums), 2)
+            if round_scores:
+                if retake_policy == "BEST":
+                    mine_score = max(round_scores.values())
+                else:
+                    mine_score = round_scores[max(round_scores.keys())]
+                mine_passed = mine_score >= int(paper.pass_score or 0)
+
         teacher = (
             db.query(User).filter(User.id == paper.teacher_id).first()
             if paper.teacher_id else None
@@ -456,15 +784,24 @@ class ExamService:
             named = {person.id: person for person in people}
             for user_id, rows in by_user.items():
                 person = named.get(user_id)
-                done = bool(rows) and all(
-                    row.status != PracticeStatusEnum.DRAFT.value for row in rows
+                round_no = max((getattr(r, "attempt_round", 1) or 1) for r in rows)
+                latest_p_rows = [r for r in rows if (getattr(r, "attempt_round", 1) or 1) == round_no]
+                done = bool(latest_p_rows) and all(
+                    row.status != PracticeStatusEnum.DRAFT.value for row in latest_p_rows
                 )
+                if not done:
+                    state = f"第{round_no}次作答中" if round_no > 1 else "作答中"
+                elif is_blank_auto_hand_in(latest_p_rows):
+                    state = "超时未作答"
+                else:
+                    state = f"已交卷(第{round_no}次)" if round_no > 1 else "已交卷"
                 participants.append(ExamParticipant(
                     name=_person_name(person) or f"学员{user_id}",
                     username=person.username if person else "",
-                    state="已交卷" if done else "作答中",
+                    state=state,
+                    user_id=user_id,
                 ))
-            participants.sort(key=lambda item: (item.state != "已交卷", item.name))
+            participants.sort(key=lambda item: (not item.state.startswith("已交卷"), item.name))
         return ExamPaperOut(
             id=paper.id,
             title=paper.title,
@@ -484,34 +821,81 @@ class ExamService:
             closed_at=paper.closed_at,
             publisher_name=_person_name(teacher),
             participants=participants,
+            audience_scope=(paper.audience_scope or "ALL"),
+            audience_values=[str(item) for item in (paper.audience_values or [])],
+            audience_ids=[int(item) for item in (paper.audience_ids or [])],
+            audience_label=audience_label(db, paper),
+            audience_count=len(audience_students(db, paper)) if _is_teacher_or_admin(user) else 0,
             mine_status=mine,
             mine_score=mine_score,
             mine_passed=mine_passed,
+            max_attempts=max_attempts,
+            current_round=current_round,
+            remaining_attempts=remaining_attempts,
+            can_retake=can_retake,
+            retake_hint=retake_hint,
         )
 
     @staticmethod
-    def start(db: Session, user: User, paper_id: int):
+    def start(db: Session, user: User, paper_id: int, retake: bool = False):
         if _is_teacher_or_admin(user):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="请用学员账号进入考试")
         paper = _paper_or_404(db, paper_id)
+        if not paper_reaches(paper, user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="你不在这场考试的受考对象里，请联系老师",
+            )
         existing = _sessions(db, paper.id, user.id)
-        if existing:
-            draft = next((row for row in existing if row.status == PracticeStatusEnum.DRAFT.value), None)
-            target = draft or existing[0]
-            expire_if_needed(db, target)
-            db.refresh(target)
-            if not paper.allow_back and target.status == PracticeStatusEnum.DRAFT.value:
-                guard_back(db, target)
-            return _to_out(target, db)
+        rounds_map = {}
+        for row in existing:
+            r = getattr(row, "attempt_round", 1) or 1
+            rounds_map.setdefault(r, []).append(row)
+
+        draft = next((row for row in existing if row.status == PracticeStatusEnum.DRAFT.value), None)
+
+        if not retake:
+            if draft:
+                expire_if_needed(db, draft)
+                db.refresh(draft)
+                if not paper.allow_back and draft.status == PracticeStatusEnum.DRAFT.value:
+                    guard_back(db, draft)
+                return _to_out(draft, db)
+            if existing:
+                latest_rnd = max(rounds_map.keys())
+                target = rounds_map[latest_rnd][0]
+                return _to_out(target, db)
+        else:
+            if paper.status != "OPEN":
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="这场考试已经收卷，无法重新考试")
+            if draft:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="当前轮次尚在作答中，请先继续作答或交卷",
+                )
+            completed_rounds = [
+                r for r, r_rows in rounds_map.items()
+                if all(row.status != PracticeStatusEnum.DRAFT.value for row in r_rows)
+            ]
+            max_attempts = int(getattr(paper, "max_attempts", 2) or 2)
+            if len(completed_rounds) >= max_attempts:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"已达重考上限（每位学员限考 {max_attempts} 次）",
+                )
+
         if paper.status != "OPEN":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="这场考试已经收卷")
+
         ids = [int(item) for item in (paper.case_ids or [])]
         cases = db.query(TrainingCase).filter(TrainingCase.id.in_(ids)).all() if ids else []
         by_id = {case.id: case for case in cases}
         ordered = [by_id[case_id] for case_id in ids if case_id in by_id]
         if not ordered:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="这场考试没有可用题目")
-        group_id = f"paper-{paper.id}-{user.id}"
+
+        next_round = (max(rounds_map.keys()) if rounds_map else 0) + 1
+        group_id = f"paper-{paper.id}-{user.id}-r{next_round}"
         first = None
         now = datetime.now()
         for index, case in enumerate(ordered, start=1):
@@ -524,13 +908,14 @@ class ExamService:
                 exam_index=index,
                 exam_total=len(ordered),
                 exam_paper_id=paper.id,
+                attempt_round=next_round,
                 status=PracticeStatusEnum.DRAFT.value,
                 started_at=now,
             )
             db.add(record)
             db.flush()
             from app.services.practice_service import _ensure_text_paper
-            _ensure_text_paper(record)
+            _ensure_text_paper(record, db)
             if first is None:
                 first = record
         db.commit()
@@ -584,11 +969,51 @@ class ExamService:
         user_ids = {row.user_id for row in _sessions(db, paper.id)}
         collected = 0
         for user_id in user_ids:
-            collected += finalize_user(db, user_id, paper.id)
+            collected += finalize_user(db, user_id, paper.id, reason="COLLECT")
         paper.status = "CLOSED"
         paper.closed_at = datetime.now()
         db.commit()
         return {"collected": collected, "entered": len(user_ids), "message": "已收卷"}
+
+    @staticmethod
+    def reset_attempt(db: Session, user: User, paper_id: int, student_id: int) -> dict:
+        """老师把某个学员的「超时未作答」空白卷清掉，让他重新进入考试。
+
+        只允许重置系统补交的空白卷：学员自己交过、或写过任何内容的卷都不能清，
+        避免误删真实成绩。
+        """
+        _require_teacher(user)
+        paper = _paper_or_404(db, paper_id)
+        if paper.status != "OPEN":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="已收卷的考试不能重置")
+        rows = _sessions(db, paper.id, student_id)
+        if not rows:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="这名学员还没有进入考试")
+        rounds_map = {}
+        for row in rows:
+            rnd = getattr(row, "attempt_round", 1) or 1
+            rounds_map.setdefault(rnd, []).append(row)
+        latest_rnd = max(rounds_map.keys())
+        latest_rows = rounds_map[latest_rnd]
+        if not is_blank_auto_hand_in(latest_rows):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="只能重置超时未作答的空白卷",
+            )
+        from app.services.op_log_service import OpLogService
+
+        for row in latest_rows:
+            db.delete(row)
+        OpLogService.record(
+            db, user=user, module="training", action="exam_reset",
+            detail=(
+                f"重置考试「{paper.title}」(#{paper.id}) 学员 #{student_id} 第{latest_rnd}轮超时空白卷，"
+                f"清除 {len(latest_rows)} 题记录 {[row.id for row in latest_rows]}"
+            ),
+            commit=False,
+        )
+        db.commit()
+        return {"removed": len(latest_rows), "message": "已重置，学员可以重新进入考试"}
 
     @staticmethod
     def remove(db: Session, user: User, paper_id: int) -> None:
@@ -607,13 +1032,7 @@ class ExamService:
         by_user: dict = {}
         for row in sessions:
             by_user.setdefault(row.user_id, []).append(row)
-        students = (
-            db.query(User)
-            .join(Role)
-            .filter(Role.code == RoleEnum.STUDENT.value, User.is_active == True)  # noqa: E712
-            .order_by(User.id.asc())
-            .all()
-        )
+        students = audience_students(db, paper)
         seen = {student.id for student in students}
         for user_id, rows in by_user.items():
             if user_id not in seen and rows and rows[0].user is not None:
@@ -621,25 +1040,67 @@ class ExamService:
         question_count = len(paper.case_ids or [])
         out = []
         line = int(paper.pass_score or 0)
+        retake_policy = getattr(paper, "retake_policy", "BEST") or "BEST"
         for student in students:
             mine = by_user.get(student.id, [])
-            by_index = {row.exam_index: row for row in mine}
-            scores = []
-            for index in range(1, question_count + 1):
-                row = by_index.get(index)
-                if row is None or row.status == PracticeStatusEnum.DRAFT.value:
-                    scores.append(None)
-                else:
-                    scores.append(round(float(row.score_total or 0), 2))
+            rounds_map = {}
+            for row in mine:
+                rnd = getattr(row, "attempt_round", 1) or 1
+                rounds_map.setdefault(rnd, []).append(row)
+
+            completed_rounds = [
+                rnd for rnd, r_rows in rounds_map.items()
+                if all(row.status != PracticeStatusEnum.DRAFT.value for row in r_rows)
+            ]
+
             if not mine:
-                state, average, passed = "缺考", None, "缺考"
-            elif any(row.status == PracticeStatusEnum.DRAFT.value for row in mine):
-                state, average, passed = "未交完", None, "未交完"
-            else:
+                state, average, passed, scores = "缺考", None, "缺考", [None] * question_count
+            elif completed_rounds:
+                best_rnd = None
+                best_avg = -1.0
+                best_scores = []
+                for rnd in sorted(completed_rounds):
+                    r_rows = rounds_map[rnd]
+                    by_index = {row.exam_index: row for row in r_rows}
+                    r_scores = []
+                    for index in range(1, question_count + 1):
+                        row = by_index.get(index)
+                        if row is None or row.status == PracticeStatusEnum.DRAFT.value:
+                            r_scores.append(None)
+                        else:
+                            r_scores.append(round(float(row.score_total or 0), 2))
+                    nums = [s for s in r_scores if s is not None]
+                    avg = round(sum(nums) / len(nums), 2) if nums else 0.0
+                    if retake_policy == "BEST":
+                        if avg > best_avg or best_rnd is None:
+                            best_avg = avg
+                            best_rnd = rnd
+                            best_scores = r_scores
+                    else:
+                        best_avg = avg
+                        best_rnd = rnd
+                        best_scores = r_scores
+
                 state = "已交卷"
-                nums = [score for score in scores if score is not None]
-                average = round(sum(nums) / len(nums), 2) if nums else 0.0
+                average = best_avg
                 passed = "合格" if average >= line else "不合格"
+                scores = best_scores
+            else:
+                latest_rnd = max(rounds_map.keys())
+                latest_rows = rounds_map[latest_rnd]
+                if is_blank_auto_hand_in(latest_rows):
+                    state, average, passed = "超时未作答", 0.0, "不合格"
+                else:
+                    state, average, passed = "未交完", None, "未交完"
+                by_index = {row.exam_index: row for row in latest_rows}
+                scores = []
+                for index in range(1, question_count + 1):
+                    row = by_index.get(index)
+                    if row is None or row.status == PracticeStatusEnum.DRAFT.value:
+                        scores.append(None)
+                    else:
+                        scores.append(round(float(row.score_total or 0), 2))
+
             out.append({
                 "name": student.real_name or student.username,
                 "username": student.username,

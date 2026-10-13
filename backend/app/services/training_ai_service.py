@@ -30,8 +30,14 @@ from app.common.utils import (
 )
 from app.core.config import settings
 from app.db.models import TrainingAiResult, TrainingCase, User
-from app.schemas.training_ai import AiCaseDraftOut, AiDiagnosisOut, AiEyeResult, AiProb
-from app.services import csu_eyes_client
+from app.schemas.training_ai import (
+    AiCaseDraftOut,
+    AiDiagnosisOut,
+    AiDiseaseResult,
+    AiEyeResult,
+    AiProb,
+)
+from app.services import case_findings, case_quality, csu_eyes_client
 from app.services.training_service import DR_GRADE_TEXT
 
 logger = logging.getLogger(__name__)
@@ -47,6 +53,17 @@ def _grade_int(v) -> int:
     except Exception:
         return 0
     return n if 0 <= n <= 4 else 0
+
+
+def _grade_opt(v) -> Optional[int]:
+    """与 _grade_int 不同：字段缺失或解析失败返回 None，不冒充 0 级。"""
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return None
+    try:
+        n = int(float(v))
+    except Exception:
+        return None
+    return n if 0 <= n <= 4 else None
 
 
 def _resolve_static_file(url: str) -> Optional[Path]:
@@ -160,6 +177,32 @@ def _pick_eye_images(
     return None, None, []
 
 
+async def _screen_glaucoma_both(left_p: Path, right_p: Path) -> Tuple[Optional[str], dict]:
+    """两眼都测青光眼，取风险更高的一侧。返回 (AI 结论值, 原始结果)；都失败时结论为 None。"""
+    best: Optional[Tuple[float, str, dict]] = None
+    for eye, path in (("OS", left_p), ("OD", right_p)):
+        try:
+            raw = await csu_eyes_client.detect_glaucoma(image_path=path)
+        except Exception as exc:
+            logger.warning("[training-ai] 青光眼筛查失败 eye=%s: %s", eye, exc)
+            continue
+        res = raw.get("result") if isinstance(raw.get("result"), dict) else {}
+        pred = res.get("prediction")
+        if pred is None:
+            continue
+        probs = res.get("probabilities") or {}
+        risk = 0.0
+        if isinstance(probs, dict):
+            risk = float(probs.get("glaucoma") or probs.get("glaucoma_suspect") or 0)
+        value = "S" if _grade_int(pred) >= 1 else "0"
+        score = (1.0 if value == "S" else 0.0) + risk
+        if best is None or score > best[0]:
+            best = (score, value, {**raw, "eye": eye})
+    if best is None:
+        return None, {}
+    return best[1], best[2]
+
+
 def _get_case(db: Session, case_id: str) -> TrainingCase:
     """兼容 case_no（T2026001）与数字主键 id 两种形式。"""
     case = db.query(TrainingCase).filter(TrainingCase.case_no == case_id).first()
@@ -180,7 +223,65 @@ def _strip_b64(raw: dict) -> dict:
     return {k: v for k, v in raw.items() if not k.endswith("_base64")}
 
 
+def _ai_value_for(case: TrainingCase, rec: TrainingAiResult, disease: str) -> Optional[str]:
+    """从缓存的推理记录里取某病种的 AI 结论；没有判读过返回 None（不冒充 0）。"""
+    primary = (case.category or "DR").upper()
+    raw = rec.raw if isinstance(rec.raw, dict) else {}
+    if disease == "GLAUCOMA":
+        if primary == "GLAUCOMA":
+            g = _grade_opt(rec.overall_grade)
+            return None if g is None else ("S" if g >= 1 else "0")
+        extra = raw.get("_glaucoma") if isinstance(raw.get("_glaucoma"), dict) else {}
+        return extra.get("value") or None
+    if disease == "DR" and primary != "GLAUCOMA":
+        g = _grade_opt(rec.overall_grade)
+        return None if g is None else str(g)
+    return None
+
+
+def _disease_results(
+    case: TrainingCase, rec: TrainingAiResult, findings: List[dict]
+) -> List[AiDiseaseResult]:
+    out: List[AiDiseaseResult] = []
+    for f in findings:
+        if not f.get("value"):
+            continue
+        ai = _ai_value_for(case, rec, f["disease"])
+        out.append(AiDiseaseResult(
+            disease=f["disease"],
+            disease_label=f.get("disease_label") or f["disease"],
+            ai_value=ai,
+            ai_label=(case_findings.value_label(f["disease"], ai) if ai is not None else "未判读"),
+            gold_value=f["value"],
+            gold_label=f.get("value_label") or f["value"],
+            source=f.get("source") or "",
+            agree=(ai == f["value"]) if ai is not None else None,
+        ))
+    return out
+
+
 def _to_out(
+    case: TrainingCase,
+    rec: TrainingAiResult,
+    *,
+    left_url: str,
+    right_url: str,
+    single_eye: bool,
+    eye_cards: List[str],
+    cached: bool,
+    findings: Optional[List[dict]] = None,
+) -> AiDiagnosisOut:
+    out = _to_out_primary(
+        case, rec,
+        left_url=left_url, right_url=right_url,
+        single_eye=single_eye, eye_cards=eye_cards, cached=cached,
+    )
+    if findings:
+        out.diseases = _disease_results(case, rec, findings)
+    return out
+
+
+def _to_out_primary(
     case: TrainingCase,
     rec: TrainingAiResult,
     *,
@@ -303,6 +404,7 @@ class TrainingAiService:
             single_eye=(left_url == right_url),
             eye_cards=eye_cards,
             cached=True,
+            findings=case_findings.list_findings(db, case),
         )
 
     # -------- 执行 AI 诊断（带缓存） --------
@@ -325,12 +427,14 @@ class TrainingAiService:
             case, _original_eye_by_url(db, case.id),
         )
         single_eye = left_url == right_url
+        findings = case_findings.list_findings(db, case)
 
         if rec is not None and not force:
             return _to_out(
                 case, rec,
                 left_url=left_url or "", right_url=right_url or "",
                 single_eye=single_eye, eye_cards=eye_cards, cached=True,
+                findings=findings,
             )
 
         if not left_url or not right_url:
@@ -389,6 +493,7 @@ class TrainingAiService:
                 case, rec,
                 left_url=left_url, right_url=right_url,
                 single_eye=single_eye, eye_cards=eye_cards, cached=False,
+                findings=findings,
             )
 
         # ========== 其它（DR）：双眼分级 ==========
@@ -426,9 +531,17 @@ class TrainingAiService:
         rec.overall_grade = overall
         rec.left_heatmap_path = left_heat or ""
         rec.right_heatmap_path = right_heat or ""
+        stored = _strip_b64(raw)
+        # 病例结论里还有青光眼时，两眼都测、取风险更高的一侧，一并给出 AI 结论
+        if any(f["disease"] == "GLAUCOMA" and f["value"] for f in findings):
+            gl_value, gl_raw = await _screen_glaucoma_both(left_p, right_p)
+            stored["_glaucoma"] = {"value": gl_value, "eye": (gl_raw or {}).get("eye", "")}
+            if gl_value is None:
+                logger.warning("[training-ai] case=%s 青光眼筛查未返回结果", case.case_no)
+
         rec.model_name = "CSU-EYES DR"
         rec.infer_duration_ms = infer_ms
-        rec.raw = _strip_b64(raw)
+        rec.raw = stored
         rec.risk_score = risk
         db.commit()
         db.refresh(rec)
@@ -441,6 +554,7 @@ class TrainingAiService:
             case, rec,
             left_url=left_url, right_url=right_url,
             single_eye=single_eye, eye_cards=eye_cards, cached=False,
+            findings=findings,
         )
 
     # -------- 教师端：AI 智能建案 --------
@@ -454,10 +568,17 @@ class TrainingAiService:
         right_eye: UploadFile,
         title: str = "",
         difficulty: str = "EASY",
+        manual_dr: str = "",
+        manual_glaucoma: str = "",
+        screen_glaucoma: bool = False,
+        confirm_low_quality: bool = False,
+        confirm_laterality: bool = False,
+        override_reason: str = "",
     ) -> AiCaseDraftOut:
         """
         上传左右眼底图 → CSU-EYES 分级 → 创建实训病例草稿（未发布）。
-        金标准 DR 分级预填为 AI 结果，教师审核修订后再发布。
+        金标准优先用教师人工预判；没填才用 AI 结果（来源标为 AI 待复核）。
+        标题不参与分级，只在与金标准明显不一致时给出冲突提示。
         """
         left_url, _, _ = await save_fundus_image(left_eye, user.id)
         right_url, _, _ = await save_fundus_image(right_eye, user.id)
@@ -467,13 +588,61 @@ class TrainingAiService:
         if left_p is None or right_p is None:
             raise HTTPException(500, detail="影像落盘后未能定位本地文件")
 
+        manual_dr = (manual_dr or "").strip()
+        if manual_dr and not case_findings.valid_value("DR", manual_dr):
+            raise HTTPException(400, detail="人工预判 DR 分级只能是 0~4，或不填")
+        manual_glaucoma = (manual_glaucoma or "").strip().upper()
+        if manual_glaucoma and not case_findings.valid_value("GLAUCOMA", manual_glaucoma):
+            raise HTTPException(400, detail="人工预判青光眼只能是 有 / 无 / 疑似，或不填")
+
+        # 质控在 AI 诊断之前：不合格就不跑分级，也不留下孤立文件
+        quality_items = await case_quality.assess_upload([("OS", left_p), ("OD", right_p)])
+        laterality = case_quality.laterality_conflicts([
+            ("OS", left_eye.filename or ""), ("OD", right_eye.filename or ""),
+        ])
+        try:
+            case_quality.gate(
+                quality_items, laterality,
+                confirm_low_quality=confirm_low_quality,
+                confirm_laterality=confirm_laterality,
+                override_reason=override_reason,
+            )
+        except HTTPException:
+            for p in (left_p, right_p):
+                try:
+                    p.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            raise
+
         raw = await csu_eyes_client.grade_dr(
             left_eye_path=left_p, right_eye_path=right_p,
         )
 
-        left_grade = _grade_int(raw.get("left_eye_prediction"))
-        right_grade = _grade_int(raw.get("right_eye_prediction"))
-        overall = _grade_int(raw.get("overall_grade")) or max(left_grade, right_grade)
+        left_opt = _grade_opt(raw.get("left_eye_prediction"))
+        right_opt = _grade_opt(raw.get("right_eye_prediction"))
+        overall_opt = _grade_opt(raw.get("overall_grade"))
+        if overall_opt is None and (left_opt is not None or right_opt is not None):
+            overall_opt = max(g for g in (left_opt, right_opt) if g is not None)
+        ai_returned = overall_opt is not None
+        if not ai_returned:
+            logger.warning(
+                "[training-ai] 建案未取到 DR 分级，上游字段：%s",
+                sorted(k for k in (raw or {}).keys() if not str(k).endswith("_base64")),
+            )
+        left_grade = left_opt if left_opt is not None else 0
+        right_grade = right_opt if right_opt is not None else 0
+        overall = overall_opt if overall_opt is not None else 0
+
+        glaucoma_ai: Optional[str] = None
+        glaucoma_raw: dict = {}
+        if screen_glaucoma or manual_glaucoma:
+            glaucoma_ai, glaucoma_raw = await _screen_glaucoma_both(left_p, right_p)
+
+        dr_value, dr_source = case_findings.resolve(
+            manual_dr, str(overall_opt) if ai_returned else None,
+        )
+        gl_value, gl_source = case_findings.resolve(manual_glaucoma, glaucoma_ai)
 
         # 生成新病例编号：T + 年份 + 3位自增
         from sqlalchemy import func
@@ -486,22 +655,34 @@ class TrainingAiService:
         ) or 0
         case_no = f"{prefix}{cnt + 1:03d}"
 
-        grade_text = DR_GRADE_TEXT.get(str(overall), f"{overall} 级")
+        grade_text = DR_GRADE_TEXT.get(str(dr_value), f"{dr_value} 级") if dr_value else ""
+        ai_text = (
+            f"综合 DR {overall} 级，OS {left_grade} 级 / OD {right_grade} 级"
+            if ai_returned else "AI 未返回 DR 分级"
+        )
+        if dr_source == "MANUAL":
+            gold_diag = grade_text
+            src_note = "金标准 DR 分级来自教师人工预判。"
+        elif dr_value:
+            gold_diag = f"（AI 预填，待复核）{grade_text}"
+            src_note = "金标准为 AI 预填结果，请带教教师复核修订后发布。"
+        else:
+            gold_diag = ""
+            src_note = "AI 未返回分级，请带教教师手动填写金标准。"
+        if gl_value:
+            gl_text = "青光眼" + case_findings.value_label("GLAUCOMA", gl_value)
+            gold_diag = "；".join(x for x in (gold_diag, gl_text if gl_source == "MANUAL" else f"（AI 预填，待复核）{gl_text}") if x)
         case = TrainingCase(
             case_no=case_no,
-            title=title.strip() or f"AI 建案 · DR {overall} 级",
-            description=(
-                f"由 CSU-EYES 算法服务自动建案（综合 DR {overall} 级，"
-                f"OS {left_grade} 级 / OD {right_grade} 级）。"
-                "金标准为 AI 预填结果，请带教教师复核修订后发布。"
-            ),
+            title=title.strip() or (f"AI 建案 · DR {dr_value} 级" if dr_value else "AI 建案"),
+            description=f"由 CSU-EYES 算法服务自动建案（{ai_text}）。{src_note}",
             category="DR",
             difficulty=difficulty if difficulty in ("EASY", "MEDIUM", "HARD") else "EASY",
             patient_name="AI建案",
             patient_gender="U",
             image_paths={"OS": [left_url], "OD": [right_url]},
-            gold_dr_grade=str(overall),
-            gold_diagnosis=f"（AI 预填，待复核）{grade_text}",
+            gold_dr_grade=dr_value or "",
+            gold_diagnosis=gold_diag,
             gold_lesions=[],
             gold_annotations=[],
             teaching_points="",
@@ -540,10 +721,31 @@ class TrainingAiService:
             raw=_strip_b64(raw),
         )
         db.add(rec)
+        if not ai_returned:
+            rec.overall_grade = ""
+            rec.left_grade = ""
+            rec.right_grade = ""
+        if glaucoma_raw:
+            rec.raw = {**(rec.raw or {}), "glaucoma": _strip_b64(glaucoma_raw)}
+
+        case_findings.upsert(
+            db, case.id, "DR", value=dr_value, source=dr_source,
+            ai_value=str(overall_opt) if ai_returned else None,
+            confirmed_by=user.id if dr_source == "MANUAL" else None,
+        )
+        case_findings.upsert(
+            db, case.id, "GLAUCOMA", value=gl_value, source=gl_source,
+            ai_value=glaucoma_ai,
+            confirmed_by=user.id if gl_source == "MANUAL" else None,
+        )
+        case_quality.persist(
+            db, case, quality_items, user_id=user.id, override_reason=override_reason,
+        )
         db.commit()
         db.refresh(case)
         db.refresh(rec)
 
+        findings = case_findings.list_findings(db, case)
         return AiCaseDraftOut(
             id=case.id,
             case_id=case.case_no,
@@ -554,6 +756,13 @@ class TrainingAiService:
                 left_url=left_url, right_url=right_url,
                 single_eye=False, eye_cards=["left", "right"], cached=False,
             ),
+            ai_returned=ai_returned,
+            findings=findings,
+            conflicts=case_findings.conflicts(findings, case.title),
+            quality=quality_items,
+            quality_warnings=[case_quality.describe(i) for i in quality_items if case_quality.describe(i)],
+            laterality=laterality,
+            quality_override=case_quality.case_summary(db, case)["override"],
         )
 
 

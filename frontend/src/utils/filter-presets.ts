@@ -241,6 +241,17 @@ export const CASE_BROWSE_FILTER: FilterSchema = {
       prefixIcon: 'Calendar',
     },
     {
+      key: 'qualityLevel',
+      type: 'select',
+      label: '图像质控',
+      width: '130px',
+      options: [
+        { label: '质量差 / 不可判读', value: 'LOW' },
+        { label: '质量合格', value: 'OK' },
+        { label: '未质控', value: 'UNKNOWN' },
+      ],
+    },
+    {
       key: 'onlyIncomplete',
       type: 'switch',
       label: '仅看没有眼底照',

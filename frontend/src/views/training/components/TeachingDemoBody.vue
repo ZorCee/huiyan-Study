@@ -215,13 +215,13 @@ onBeforeUnmount(() => observer?.disconnect())
 
 <style scoped>
 .demo { display: flex; flex-direction: column; gap: 14px; }
-.kind { margin: 0; font-size: 13px; color: #4e5969; }
+.kind { margin: 0; font-size: 13px; color: var(--hy-c-text-2, #4e5969); }
 .hold {
   margin: 0;
   padding: 10px 12px;
   border-radius: 8px;
-  background: #fff7e8;
-  color: #1d2129;
+  background: var(--hy-c-warning-soft, #fff7e8);
+  color: var(--hy-c-text, #1d2129);
   font-size: 14px;
   line-height: 1.6;
 }
@@ -229,7 +229,7 @@ section h4 {
   margin: 0 0 6px;
   font-size: 14px;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .body, .empty, .note, .caption, .grade {
   margin: 0;
@@ -238,9 +238,9 @@ section h4 {
   line-height: 1.65;
   font-size: 14px;
 }
-.body { color: #1d2129; }
+.body { color: var(--hy-c-text, #1d2129); }
 .grade { color: #0e42d2; font-weight: 700; margin-bottom: 4px; }
-.empty, .note, .caption { color: #4e5969; font-size: 13px; }
+.empty, .note, .caption { color: var(--hy-c-text-2, #4e5969); font-size: 13px; }
 .lesions {
   margin: 0;
   padding: 0;
@@ -250,13 +250,13 @@ section h4 {
   gap: 8px;
 }
 .lesions li {
-  background: #f2f3f5;
+  background: var(--hy-c-fill, #f2f3f5);
   border-radius: 6px;
   padding: 6px 10px;
   font-size: 13px;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
-.lesions span { margin-left: 6px; color: #4e5969; }
+.lesions span { margin-left: 6px; color: var(--hy-c-text-2, #4e5969); }
 .stage {
   position: relative;
   width: min(100%, 640px);
@@ -275,12 +275,12 @@ section h4 {
 .mask { opacity: 0.55; object-fit: fill; }
 .thumbs { display: flex; gap: 8px; margin-top: 8px; }
 .thumbs button {
-  border: 1px solid #e5e6eb;
-  background: #fff;
+  border: 1px solid var(--hy-c-border, #e5e6eb);
+  background: var(--hy-c-surface, #fff);
   border-radius: 6px;
   padding: 4px 10px;
   cursor: pointer;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 .thumbs button.on { border-color: #1677ff; color: #1677ff; }
 </style>

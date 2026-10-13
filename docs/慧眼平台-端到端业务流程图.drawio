@@ -54,7 +54,7 @@
         <mxCell id="a-tea-1" value="病例库可见全部草稿&#xa;含他人未发布，可修订金标准" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=18;" vertex="1" parent="lane-admin">
           <mxGeometry x="620" y="24" width="440" height="96" as="geometry"/>
         </mxCell>
-        <mxCell id="a-tea-2" value="完善金标准 / 加入实训&#xa;发布后学员才可见" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=18;" vertex="1" parent="lane-admin">
+        <mxCell id="a-tea-2" value="完善金标准并发布 → 开放练习完善金标准 / 加入实训&#xa;发布后学员才可见#xa;须先发布，学员才可见" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=18;" vertex="1" parent="lane-admin">
           <mxGeometry x="620" y="170" width="440" height="96" as="geometry"/>
         </mxCell>
         <mxCell id="a-rev-1" value="待审核（与教师同入口）&#xa;练习 + 阅片提交" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=18;" vertex="1" parent="lane-admin">
@@ -63,7 +63,7 @@
         <mxCell id="a-scr-1" value="后台 · IDRiD 批量导入&#xa;默认 Dry-run + 限制 5 条" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=18;" vertex="1" parent="lane-admin">
           <mxGeometry x="1660" y="24" width="440" height="96" as="geometry"/>
         </mxCell>
-        <mxCell id="a-scr-2" value="取消 Dry-run → 正式入库&#xa;默认未发布、未加入实训" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=18;" vertex="1" parent="lane-admin">
+        <mxCell id="a-scr-2" value="取消 Dry-run → 正式入库&#xa;默认未发布、未开放练习" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=18;" vertex="1" parent="lane-admin">
           <mxGeometry x="1660" y="170" width="440" height="96" as="geometry"/>
         </mxCell>
         <mxCell id="a-ntc-1" value="后台 · 公告 &amp; 消息 · 发布&#xa;可见角色勾 STUDENT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=18;" vertex="1" parent="lane-admin">
@@ -101,7 +101,7 @@
         <mxCell id="t-tea-2" value="病例库 · 完善金标准&#xa;存草稿 或 发布并加入实训" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=18;" vertex="1" parent="lane-teacher">
           <mxGeometry x="620" y="140" width="440" height="90" as="geometry"/>
         </mxCell>
-        <mxCell id="t-tea-3" value="加入实训 / 教学分享&#xa;is_train_case = true" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=18;" vertex="1" parent="lane-teacher">
+        <mxCell id="t-tea-3" value="开放练习 / 临时分享 / 提交教学库加入实训 / 教学分享&#xa;#xa;is_train_case = true" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=18;" vertex="1" parent="lane-teacher">
           <mxGeometry x="620" y="264" width="440" height="90" as="geometry"/>
         </mxCell>
         <mxCell id="t-rev-1" value="侧栏 · 待审核&#xa;练习 SUBMITTED + 阅片 SUBMITTED" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=18;" vertex="1" parent="lane-teacher">
@@ -160,7 +160,7 @@
         <mxCell id="s-acc-3" value="我已知晓&#xa;服务端记已读" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=18;" vertex="1" parent="lane-student">
           <mxGeometry x="100" y="264" width="440" height="90" as="geometry"/>
         </mxCell>
-        <mxCell id="s-tea-1" value="病例库 / 抽题 / 阅片&#xa;仅 is_published 且已加入实训" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=18;" vertex="1" parent="lane-student">
+        <mxCell id="s-tea-1" value="病例库 / 抽题 / 阅片&#xa;仅 is_published 且已开放练习" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=18;" vertex="1" parent="lane-student">
           <mxGeometry x="620" y="24" width="440" height="96" as="geometry"/>
         </mxCell>
         <mxCell id="s-tea-2" value="教师演示病例&#xa;教学分享给到的病例" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=18;" vertex="1" parent="lane-student">

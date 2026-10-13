@@ -102,6 +102,94 @@ const onRevoke = async (row: Share) => {
   }
 }
 
+type EditScope = TeachingApi.ShareUpdateParams['shareScope']
+
+const editVisible = ref(false)
+const editSaving = ref(false)
+const editTarget = ref<Share | null>(null)
+const editTargets = ref<TeachingApi.ShareTargets>({ years: [], batches: [], groups: [], students: [] })
+const editForm = reactive({
+  shareScope: 'ALL' as EditScope,
+  scopeValue: '',
+  audienceIds: [] as number[],
+  longTerm: false,
+  expireHours: 24,
+})
+
+const editScopeValues = computed(() => {
+  if (editForm.shareScope === 'YEAR') return editTargets.value.years
+  if (editForm.shareScope === 'BATCH') return editTargets.value.batches
+  if (editForm.shareScope === 'GROUP') return editTargets.value.groups
+  return []
+})
+
+const openEdit = async (row: Share) => {
+  editTarget.value = row
+  editForm.shareScope = (row.shareScope || 'ALL') as EditScope
+  editForm.scopeValue = row.scopeValue || ''
+  editForm.audienceIds = [...(row.audienceIds || [])]
+  editForm.longTerm = !row.expiredAt
+  editForm.expireHours = row.expireHours > 0 ? row.expireHours : 24
+  editVisible.value = true
+  try {
+    editTargets.value = (await TeachingApi.getShareTargets()) || editTargets.value
+  } catch {
+    /* 已弹错误 */
+  }
+}
+
+const onEditScopeChange = () => {
+  editForm.scopeValue = ''
+  editForm.audienceIds = []
+}
+
+const submitEdit = async () => {
+  if (!editTarget.value) return
+  if (['YEAR', 'BATCH', 'GROUP'].includes(editForm.shareScope) && !editForm.scopeValue) {
+    ElMessage.warning('请选择具体的年级 / 批次 / 带教组')
+    return
+  }
+  if (editForm.shareScope === 'PEOPLE' && editForm.audienceIds.length === 0) {
+    ElMessage.warning('请至少选择一名学员')
+    return
+  }
+  editSaving.value = true
+  try {
+    await TeachingApi.updateShare(editTarget.value.id, {
+      shareScope: editForm.shareScope,
+      scopeValue: editForm.scopeValue,
+      audienceIds: editForm.shareScope === 'PEOPLE' ? editForm.audienceIds : [],
+      expireHours: editForm.longTerm ? 0 : editForm.expireHours,
+    })
+    ElMessage.success('已更新，学员端按新范围和有效期显示')
+    editVisible.value = false
+    fetchList()
+  } catch {
+    /* 已弹错误 */
+  } finally {
+    editSaving.value = false
+  }
+}
+
+const onShelve = async (row: Share) => {
+  try {
+    await ElMessageBox.confirm(
+      '确认下架该入库教学病例？下架后学员端「教师演示病例」将立即不可见。',
+      '下架',
+      { type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  try {
+    await TeachingApi.shelveOwnShare(row.id)
+    ElMessage.success('已下架')
+    fetchList()
+  } catch {
+    /* 已弹错误 */
+  }
+}
+
 const detailVisible = ref(false)
 const detail = ref<Share | null>(null)
 const showDetail = (row: Share) => {
@@ -257,7 +345,7 @@ onMounted(() => {
   <div class="teaching-share-page" :class="{ 'is-embedded': embedded }">
     <header class="page-head">
       <div class="head-left">
-        <h2>我的教学分享</h2>
+        <h2>教学分享</h2>
         <div class="muted">分享病例，或上传视频、PPT、Word 给学员学习</div>
       </div>
       <div class="head-right">
@@ -368,6 +456,8 @@ onMounted(() => {
               <div v-if="row.expiredAt" class="small">
                 到期：{{ row.expiredAt }}
               </div>
+              <div v-else-if="row.status === 'SHARING'" class="small">长期有效</div>
+              <div v-if="isExpired(row)" class="small muted">已过期，学员端不可见，可点「修改 / 续期」</div>
             </template>
             <template v-else>
               <div v-if="row.reviewedAt" class="small">
@@ -409,6 +499,25 @@ onMounted(() => {
             >
               收回
             </el-button>
+            <el-button
+              v-if="row.shareType === 'TEMPORARY' && row.status === 'SHARING'"
+              text
+              type="primary"
+              size="small"
+              @click="openEdit(row)"
+            >
+              {{ isExpired(row) ? '续期' : '修改' }}
+            </el-button>
+            <el-button
+              v-if="row.shareType === 'PERMANENT' && row.status === 'APPROVED'"
+              text
+              type="danger"
+              size="small"
+              :icon="RemoveFilled"
+              @click="onShelve(row)"
+            >
+              下架
+            </el-button>
           </template>
         </el-table-column>
         <template #empty>
@@ -429,6 +538,47 @@ onMounted(() => {
         />
       </div>
     </div>
+
+    <el-dialog v-model="editVisible" title="修改分享范围 / 有效期" width="520" destroy-on-close>
+      <el-form label-width="72px">
+        <el-form-item label="发给">
+          <el-select v-model="editForm.shareScope" style="width: 100%" @change="onEditScopeChange">
+            <el-option label="全体学员" value="ALL" />
+            <el-option label="按年级" value="YEAR" />
+            <el-option label="按轮转批次" value="BATCH" />
+            <el-option label="按带教组" value="GROUP" />
+            <el-option label="指定学员" value="PEOPLE" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="['YEAR', 'BATCH', 'GROUP'].includes(editForm.shareScope)" label="选择">
+          <el-select v-model="editForm.scopeValue" placeholder="请选择" style="width: 100%">
+            <el-option v-for="v in editScopeValues" :key="v" :label="v" :value="v" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="editForm.shareScope === 'PEOPLE'" label="学员">
+          <el-select v-model="editForm.audienceIds" multiple filterable placeholder="搜索学员" style="width: 100%">
+            <el-option v-for="s in editTargets.students" :key="s.id" :label="s.name" :value="s.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="有效期">
+          <el-input-number
+            v-model="editForm.expireHours"
+            :min="1"
+            :max="720"
+            :disabled="editForm.longTerm"
+            controls-position="right"
+            style="width: 140px"
+          />
+          <span class="muted" style="margin-left: 8px">小时</span>
+          <el-checkbox v-model="editForm.longTerm" style="margin-left: 16px">长期有效</el-checkbox>
+          <div class="muted small">有效期从保存时刻重新计算；保存后学员端立即按新设置显示。</div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editVisible = false">取消</el-button>
+        <el-button type="primary" :loading="editSaving" @click="submitEdit">保存</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="uploadVisible" title="上传教学资料" width="520" destroy-on-close>
       <el-form label-width="72px">
@@ -516,7 +666,7 @@ onMounted(() => {
   margin: 0 auto;
   padding: 24px 28px 36px;
   min-height: 100vh;
-  background: #ffffff;
+  background: var(--hy-c-surface, #ffffff);
 }
 .teaching-share-page.is-embedded {
   max-width: none;
@@ -533,21 +683,21 @@ onMounted(() => {
   gap: 12px;
   flex-wrap: wrap;
 }
-.head-left h2 { margin: 0 0 4px; font-size: 22px; font-weight: 700; color: #1d2129; }
-.head-left .muted { color: #86909c; font-size: 13px; }
+.head-left h2 { margin: 0 0 4px; font-size: 22px; font-weight: 700; color: var(--hy-c-text, #1d2129); }
+.head-left .muted { color: var(--hy-c-text-3, #86909c); font-size: 13px; }
 .head-right { display: flex; gap: 8px; align-items: center; }
 
 .card {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 12px;
   padding: 16px 18px;
   margin-bottom: 16px;
 }
-.card-title { font-size: 15px; font-weight: 600; color: #1d2129; margin-bottom: 4px; }
+.card-title { font-size: 15px; font-weight: 600; color: var(--hy-c-text, #1d2129); margin-bottom: 4px; }
 .card-hint { margin-bottom: 10px; }
-.picked { margin-top: 8px; font-size: 12px; color: #1d2129; }
-.case-title { color: #1d2129; font-weight: 500; }
+.picked { margin-top: 8px; font-size: 12px; color: var(--hy-c-text, #1d2129); }
+.case-title { color: var(--hy-c-text, #1d2129); font-weight: 500; }
 .teach-line {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -555,11 +705,11 @@ onMounted(() => {
   overflow: hidden;
   margin: 2px 0;
 }
-.muted { color: #86909c; font-size: 12px; }
+.muted { color: var(--hy-c-text-3, #86909c); font-size: 12px; }
 .muted.small { font-size: 11px; }
 .small { font-size: 12px; }
 .multiline { white-space: pre-wrap; word-break: break-word; }
-.empty { padding: 36px 0; text-align: center; color: #c9cdd4; font-size: 14px; }
+.empty { padding: 36px 0; text-align: center; color: var(--hy-c-text-4, #c9cdd4); font-size: 14px; }
 .pagination { margin-top: 14px; display: flex; justify-content: flex-end; }
 
 .detail .row {
@@ -567,9 +717,9 @@ onMounted(() => {
   gap: 12px;
   padding: 6px 0;
   font-size: 13px;
-  color: #1d2129;
-  border-bottom: 1px dashed #f1f2f5;
+  color: var(--hy-c-text, #1d2129);
+  border-bottom: 1px dashed var(--hy-c-border, #f1f2f5);
 }
 .detail .row:last-child { border-bottom: none; }
-.detail .lbl { width: 90px; flex-shrink: 0; color: #86909c; }
+.detail .lbl { width: 90px; flex-shrink: 0; color: var(--hy-c-text-3, #86909c); }
 </style>

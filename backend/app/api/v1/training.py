@@ -235,15 +235,27 @@ async def create_ai_case(
     right_eye: UploadFile = File(..., description="右眼眼底图（OD）"),
     title: str = Form("", description="病例标题（缺省自动生成）"),
     difficulty: str = Form("EASY", description="难度 EASY/MEDIUM/HARD"),
+    manual_dr: str = Form("", description="人工预判 DR 分级 0~4；空=用 AI"),
+    manual_glaucoma: str = Form("", description="人工预判青光眼 0 无 / 1 有 / S 疑似；空=不填"),
+    screen_glaucoma: bool = Form(False, description="是否同时调用青光眼筛查"),
+    confirm_low_quality: bool = Form(False, description="已知晓图像质量较差，仍继续建案"),
+    confirm_laterality: bool = Form(False, description="已确认眼别无误（文件名提示冲突时）"),
+    override_reason: str = Form("", description="不可判读图像人工放行理由（必填才可放行）"),
 ):
     data = await TrainingAiService.create_ai_case(
         db=db, user=current_user,
         left_eye=left_eye, right_eye=right_eye,
         title=title, difficulty=difficulty,
+        manual_dr=manual_dr, manual_glaucoma=manual_glaucoma,
+        screen_glaucoma=screen_glaucoma,
+        confirm_low_quality=confirm_low_quality,
+        confirm_laterality=confirm_laterality,
+        override_reason=override_reason,
     )
+    ai_part = f"AI 综合 DR {data.ai.overall_grade} 级" if data.ai_returned else "AI 未返回分级"
     return success(
         data=data.model_dump(by_alias=True),
-        msg=f"建案成功：{data.case_id}（AI 综合 DR {data.ai.overall_grade} 级，草稿待复核）",
+        msg=f"建案成功：{data.case_id}（{ai_part}，草稿待复核）",
     )
 
 

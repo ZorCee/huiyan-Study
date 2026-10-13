@@ -232,7 +232,7 @@ const submitPassword = async () => {
 const settingLoading = ref(false)
 const settingSaving = ref(false)
 const setting = reactive<LoginApi.UserSetting>({
-  theme: 'light',
+  theme: 'auto',
   fontSize: 'normal',
   language: 'zh-CN',
   notifyMessage: true,
@@ -246,7 +246,6 @@ const fetchSetting = async () => {
   try {
     const s = await LoginApi.getUserSetting()
     Object.assign(setting, s)
-    if (setting.theme === 'auto') setting.theme = 'light'
     applyFontSize(setting.fontSize)
     applyTheme(setting.theme)
   } catch {
@@ -273,7 +272,6 @@ const submitSetting = async () => {
       notifySound: setting.notifySound
     })
     Object.assign(setting, s)
-    if (setting.theme === 'auto') setting.theme = 'light'
     applyFontSize(setting.fontSize)
     applyTheme(setting.theme)
     ElMessage.success('配置已保存')
@@ -354,7 +352,7 @@ onMounted(() => {
             <el-avatar
               :size="88"
               :src="userInfo.avatar"
-              style="background:#eef4ff;color:#1677ff;font-size:30px"
+              style="background:var(--hy-c-primary-soft, #eef4ff);color:#1677ff;font-size:30px"
             >
               {{ avatarLetter }}
             </el-avatar>
@@ -541,9 +539,10 @@ onMounted(() => {
                 <el-radio-group v-model="setting.theme">
                   <el-radio-button value="light">浅色</el-radio-button>
                   <el-radio-button value="dark">深色</el-radio-button>
+                  <el-radio-button value="auto">跟随系统</el-radio-button>
                 </el-radio-group>
                 <div class="setting-hint">
-                  学员培训端、管理员筛查端和用户中心共用这一套侧栏风格。选中即时生效，保存后下次登录仍沿用。
+                  全站共用这一套风格。选中即时生效，保存后下次登录仍沿用。阅片画布始终保持深色。
                 </div>
               </el-form-item>
               <el-form-item label="字体大小">
@@ -575,7 +574,7 @@ onMounted(() => {
 <style scoped>
 .profile-page {
   min-height: 100vh;
-  background: #f5f6fa;
+  background: var(--hy-c-fill, #f5f6fa);
   display: flex;
   flex-direction: column;
 }
@@ -583,8 +582,8 @@ onMounted(() => {
 .profile-header {
   height: 56px;
   padding: 0 24px;
-  background: #fff;
-  border-bottom: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border-bottom: 1px solid var(--hy-c-border, #e5e6eb);
   display: flex;
   align-items: center;
   position: sticky;
@@ -599,12 +598,12 @@ onMounted(() => {
 .divider {
   width: 1px;
   height: 18px;
-  background: #e5e6eb;
+  background: var(--hy-c-fill-2, #e5e6eb);
 }
 .page-title {
   font-size: 15px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
 }
 
 .profile-main {
@@ -617,8 +616,8 @@ onMounted(() => {
 }
 
 .user-card {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 12px;
   padding: 20px 24px;
   margin-bottom: 16px;
@@ -671,7 +670,7 @@ onMounted(() => {
 .user-name {
   font-size: 20px;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--hy-c-text, #1d2129);
   margin-bottom: 8px;
 }
 .user-meta {
@@ -680,7 +679,7 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: 10px;
   font-size: 13px;
-  color: #4e5969;
+  color: var(--hy-c-text-2, #4e5969);
 }
 .meta-item {
   display: inline-flex;
@@ -689,7 +688,7 @@ onMounted(() => {
 }
 .user-last-login {
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   margin-top: 8px;
 }
 
@@ -698,8 +697,8 @@ onMounted(() => {
 }
 :deep(.el-tabs__header) {
   margin-bottom: 0;
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-radius: 12px 12px 0 0;
   padding: 0 8px;
 }
@@ -708,8 +707,8 @@ onMounted(() => {
 }
 
 .card {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: var(--hy-c-surface, #fff);
+  border: 1px solid var(--hy-c-border, #e5e6eb);
   border-top: none;
   border-radius: 0 0 12px 12px;
   padding: 24px 28px;
@@ -718,7 +717,7 @@ onMounted(() => {
 .setting-hint {
   margin-top: 4px;
   font-size: 12px;
-  color: #86909c;
+  color: var(--hy-c-text-3, #86909c);
   line-height: 1.6;
 }
 

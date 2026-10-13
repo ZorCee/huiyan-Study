@@ -20,8 +20,24 @@ export type DiagnosisType = 'MA' | 'DR' | 'COMPREHENSIVE'
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
 export type EyeSide = 'OD' | 'OS' | 'OU' | 'UK'
 
+/** 上传时选填的受检者信息；刻意不含姓名、手机号、身份证号 */
+export interface SubjectInfo {
+  subjectCode?: string
+  gender?: 'M' | 'F' | 'U'
+  age?: number | null
+}
+
+const appendSubject = (fd: FormData, subject?: SubjectInfo) => {
+  if (!subject) return
+  const code = (subject.subjectCode || '').trim()
+  if (code) fd.append('subject_code', code)
+  if (subject.gender && subject.gender !== 'U') fd.append('subject_gender', subject.gender)
+  if (typeof subject.age === 'number') fd.append('subject_age', String(subject.age))
+}
+
 export interface MaDiagnosisResult {
-  maCount: number
+  /** null = 算法未返回 MA 字段（不是 0 个） */
+  maCount: number | null
   overlayUrl: string
   heatmapUrl: string
   inferenceTime: number
@@ -44,7 +60,7 @@ export interface DrDiagnosisResult {
 
 export interface ComprehensiveDiagnosisResult {
   overallGrade: number
-  maCount: number
+  maCount: number | null
   maOverlayUrl: string
   drHeatmapUrl: string
   summary: string
@@ -55,7 +71,12 @@ export interface DiagnosisOut {
   taskId: string
   caseId: number
   caseSn: string
+  /** 受检者显示名：自动编号，或已脱敏的历史姓名 */
   patientName: string
+  /** auto = 上传时自动生成的编号；input = 上传时录入 */
+  subjectSource?: 'auto' | 'input'
+  /** 录入人（上传医生） */
+  submitterName?: string
   diagnosisType: DiagnosisType
   riskLevel: RiskLevel
   primaryImageUrl: string
@@ -106,12 +127,14 @@ export const diagnoseMa = (
   file: File,
   eye: EyeSide = 'UK',
   modelId?: number,
-  onProgress?: UploadProgressCb
+  onProgress?: UploadProgressCb,
+  subject?: SubjectInfo
 ) => {
   const fd = new FormData()
   fd.append('file', file)
   fd.append('eye', eye)
   if (modelId !== undefined) fd.append('model_id', String(modelId))
+  appendSubject(fd, subject)
   return http.upload<DiagnosisOut>(
     '/diagnosis/ma',
     fd,
@@ -139,12 +162,14 @@ export const diagnoseDr = (
   leftEye: File,
   rightEye: File,
   modelId?: number,
-  onProgress?: UploadProgressCb
+  onProgress?: UploadProgressCb,
+  subject?: SubjectInfo
 ) => {
   const fd = new FormData()
   fd.append('left_eye', leftEye)
   fd.append('right_eye', rightEye)
   if (modelId !== undefined) fd.append('model_id', String(modelId))
+  appendSubject(fd, subject)
   return http.upload<DiagnosisOut>(
     '/diagnosis/dr',
     fd,
@@ -170,13 +195,15 @@ export const diagnoseDr = (
 export const diagnoseComprehensive = (
   file: File,
   tasks?: ('ma_detection' | 'dr_grading')[],
-  onProgress?: UploadProgressCb
+  onProgress?: UploadProgressCb,
+  subject?: SubjectInfo
 ) => {
   const fd = new FormData()
   fd.append('file', file)
   if (tasks && tasks.length) {
     for (const t of tasks) fd.append('tasks', t)
   }
+  appendSubject(fd, subject)
   return http.upload<DiagnosisOut>(
     '/diagnosis/comprehensive',
     fd,

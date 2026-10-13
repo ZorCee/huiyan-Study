@@ -4,6 +4,7 @@
 - 角色：STUDENT / TEACHER / ADMIN 均可访问，权限在 service 层细化
 - 接口清单：
     GET    /reading/cases/{caseId}/source       获取病例影像源
+    GET    /reading/cases/{caseId}/quality-result 读取已保存的图像质控结果
     GET    /reading/list                        阅片记录分页
     GET    /reading/{recordId}                  阅片记录详情
     GET    /reading/cases/{caseId}/draft        获取当前用户最新草稿（阅片页恢复用）
@@ -86,6 +87,23 @@ async def check_image_quality(
     return success(data=data, msg=msg)
 
 
+@router.get(
+    "/cases/{caseId}/quality-result",
+    summary="读取病例每张原图已保存的图像质控结果（不调用算法）",
+    response_model=None,
+)
+def get_image_quality_result(
+    current_user: CurrentUser,
+    db: DbSession,
+    caseId: int = Path(..., ge=1),
+):
+    from app.services.image_quality_service import ImageQualityService
+
+    # 与影像源同一套可见性校验：看不到病例影像的人也看不到质控结果
+    ReadingService.get_image_source(db=db, user=current_user, case_id=caseId)
+    return success(data=ImageQualityService.case_result(db, caseId))
+
+
 class LesionSegParams(BaseModel):
     """只带当前眼底图地址。不改已有阅片保存结构。"""
 
@@ -100,6 +118,44 @@ class AiPredictParams(BaseModel):
     image_url: str = Field(..., alias="imageUrl", min_length=1)
     algorithm: str = Field("multi_lesions", alias="algorithm")
     eye: Optional[str] = Field(None, alias="eye")
+
+
+class AiRunParams(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    algorithm: str = Field(..., min_length=1)
+    image_url: str = Field(..., alias="imageUrl", min_length=1)
+    eye: Optional[str] = Field(None)
+
+
+@router.get(
+    "/ai-algorithms",
+    summary="AI算法目录（名称、类型、入参出参、依赖）与 CSU-EYES 实时部署状态",
+    response_model=None,
+)
+async def list_ai_algorithms(current_user: CurrentUser):
+    from app.services.ai_algorithm_service import AiAlgorithmService
+
+    return success(data=await AiAlgorithmService.catalog(current_user))
+
+
+@router.post(
+    "/cases/{caseId}/ai-run",
+    summary="对当前眼底图运行单个 AI 算法（多病灶 / 微动脉瘤 / 视杯视盘 / 青光眼）",
+    response_model=None,
+)
+async def run_ai_algorithm(
+    params: AiRunParams,
+    current_user: CurrentUser,
+    db: DbSession,
+    caseId: int = Path(..., ge=1),
+):
+    from app.services.ai_algorithm_service import AiAlgorithmService
+
+    data = await AiAlgorithmService.run(
+        db=db, user=current_user, case_id=caseId,
+        algorithm=params.algorithm, image_url=params.image_url, eye=params.eye or "",
+    )
+    return success(data=data, msg=data.get("message") or "")
 
 
 @router.post(
@@ -137,18 +193,18 @@ async def predict_case_ai(
     summary="对当前眼底图做出血、硬性渗出、软性渗出分割",
     response_model=None,
 )
-def segment_lesions(
+async def segment_lesions(
     params: LesionSegParams,
     current_user: CurrentUser,
     db: DbSession,
     caseId: int = Path(..., ge=1),
 ):
     """
-    兼容保留旧接口：调用本地 VM-UNet。
+    兼容保留旧接口：多病灶分割，改为调用 CSU-EYES 算法服务器。
     """
     from app.services.lesion_seg_service import LesionSegService
 
-    data = LesionSegService.run(
+    data = await LesionSegService.predict(
         db=db, user=current_user, case_id=caseId, image_url=params.image_url,
     )
     return success(data=data, msg=data.get("message") or "")

@@ -213,3 +213,78 @@ def test_time_up_collects_the_unfinished_paper(db):
     assert detail.status == "SUBMITTED"
     assert detail.answers_open is False
     ExamService.hand_in(db, student, paper.id, ExamHandIn(session_id=started.id, student_dr_grade="2"))
+
+
+def _mine(db, user, paper_id):
+    return next(item for item in ExamService.list_papers(db, user) if item.id == paper_id).mine_status
+
+
+def _expire(db, session_id):
+    from app.db.models import PracticeSession
+    row = db.query(PracticeSession).filter(PracticeSession.id == session_id).one()
+    row.started_at = datetime.now() - timedelta(hours=2)
+    db.commit()
+
+
+def _one_question_paper(db, teacher, title="状态"):
+    case = _case(db, teacher, f"{title}-1")
+    return ExamService.create(db, teacher, ExamCreate(
+        title=title, duration_minutes=20, allow_back=True,
+        pick_mode="SELECTED", case_ids=[case.id],
+    ))
+
+
+def test_status_ready_before_entering(db):
+    teacher, student, _ = _people(db)
+    paper = _one_question_paper(db, teacher)
+    assert _mine(db, student, paper.id) == "READY"
+
+
+def test_status_handed_after_real_submit(db):
+    teacher, student, _ = _people(db)
+    paper = _one_question_paper(db, teacher)
+    started = ExamService.start(db, student, paper.id)
+    assert _mine(db, student, paper.id) == "DOING"
+    PracticeService.submit(db, student, PracticeSubmitParams(
+        session_id=started.id, student_dr_grade="2", student_diagnosis="出血", request_id="real",
+    ))
+    assert _mine(db, student, paper.id) == "HANDED"
+    with pytest.raises(HTTPException):
+        ExamService.reset_attempt(db, teacher, paper.id, student.id)
+
+
+def test_timeout_without_answers_is_not_shown_as_handed(db):
+    teacher, student, _ = _people(db)
+    paper = _one_question_paper(db, teacher)
+    started = ExamService.start(db, student, paper.id)
+    _expire(db, started.id)
+    PracticeService.get_detail(db, student, started.id)
+    assert _mine(db, student, paper.id) == "TIMEOUT_BLANK"
+
+
+def test_reset_lets_the_student_take_the_exam_again(db):
+    from app.db.models import OperationLog
+    teacher, student, _ = _people(db)
+    paper = _one_question_paper(db, teacher)
+    started = ExamService.start(db, student, paper.id)
+    _expire(db, started.id)
+    PracticeService.get_detail(db, student, started.id)
+    with pytest.raises(HTTPException) as denied:
+        ExamService.reset_attempt(db, student, paper.id, student.id)
+    assert denied.value.status_code == 403
+    result = ExamService.reset_attempt(db, teacher, paper.id, student.id)
+    assert result["removed"] == 1
+    assert db.query(OperationLog).filter(OperationLog.action == "exam_reset").count() == 1
+    assert _mine(db, student, paper.id) == "READY"
+    again = ExamService.start(db, student, paper.id)
+    assert again.status != "SUBMITTED"
+    assert _mine(db, student, paper.id) == "DOING"
+
+
+def test_self_test_exam_does_not_pick_up_a_formal_exam_draft(db):
+    teacher, student, _ = _people(db)
+    paper = _one_question_paper(db, teacher)
+    formal = ExamService.start(db, student, paper.id)
+    _case(db, teacher, "自测-1")
+    own = PracticeService.start_exam(db, student)
+    assert own.id != formal.id

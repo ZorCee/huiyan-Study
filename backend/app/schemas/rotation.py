@@ -38,6 +38,7 @@ class TaskOut(_Camel):
     case_id: Optional[int] = None
     case_no: str = ""
     resource_id: Optional[int] = None
+    session_id: Optional[int] = None
     done_count: int = 0
     student_count: int = 0
     tier: str = "REQUIRED"
@@ -52,6 +53,9 @@ class StudentTaskSnap(_Camel):
     status: str
     status_text: str
     score: Optional[float] = None
+    case_id: Optional[int] = None
+    session_id: Optional[int] = None
+    resource_id: Optional[int] = None
 
 
 class StudentProgressOut(_Camel):
@@ -78,6 +82,23 @@ class WeakLabelBrief(_Camel):
     label: str
     missed: int = 0
     false_positive: int = 0
+
+
+class WeakCaseItem(_Camel):
+    session_id: int
+    user_id: int
+    student_name: str
+    username: str = ""
+    case_id: int
+    case_no: str
+    case_title: str
+    image_url: str = ""
+    gold_dr_grade: str = ""
+    error_type: str  # "missed" | "false_positive"
+    label: str
+    note: str = ""
+    score_total: float = 0.0
+    submitted_at: Optional[str] = None
 
 
 class GroupSummary(_Camel):
@@ -123,8 +144,21 @@ class OptionItem(_Camel):
     label: str
 
 
+class CaseOptionItem(OptionItem):
+    category: str = ""
+    difficulty: str = ""
+    gold_dr_grade: str = ""
+
+
+class PendingCaseItem(CaseOptionItem):
+    is_published: bool = False
+    is_train_case: bool = False
+    missing_step: str = ""
+
+
 class RotationOptionsOut(_Camel):
-    cases: List[OptionItem] = Field(default_factory=list)
+    cases: List[CaseOptionItem] = Field(default_factory=list)
+    pending_cases: List[PendingCaseItem] = Field(default_factory=list)
     resources: List[OptionItem] = Field(default_factory=list)
 
 
